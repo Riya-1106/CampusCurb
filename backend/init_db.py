@@ -120,6 +120,22 @@ CREATE TABLE IF NOT EXISTS food_feedback (
 )
 """)
 
+# PREDICTIONS TABLE
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS predictions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    campus_id INTEGER,
+    food_item_id INTEGER,
+    date TEXT,
+    base_prediction REAL,
+    buffer_added INTEGER,
+    final_prediction INTEGER,
+    actual_sold INTEGER,
+    error_value REAL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)
+""")
+
 conn.commit()
 conn.close()
 

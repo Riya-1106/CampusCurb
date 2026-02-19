@@ -143,6 +143,253 @@ def predict():
     except Exception as e:
         return jsonify({"error": str(e)})
 
+# -----------------------
+# Get Daily Menu
+# -----------------------
+@app.route("/get-menu", methods=["GET"])
+def get_menu():
+
+    campus_id = request.args.get("campus_id")
+    date = request.args.get("date")
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT daily_menu.id, food_items.food_name, daily_menu.timing_slot
+        FROM daily_menu
+        JOIN food_items ON daily_menu.food_item_id = food_items.id
+        WHERE daily_menu.campus_id=? AND daily_menu.date=?
+    """, (campus_id, date))
+
+    menu = cursor.fetchall()
+    conn.close()
+
+    return jsonify([dict(row) for row in menu])
+
+# -----------------------
+# Submit Student Response
+# -----------------------
+@app.route("/submit-response", methods=["POST"])
+def submit_response():
+
+    data = request.json
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        INSERT INTO student_responses 
+        (user_id, food_item_id, date, will_attend, clicked_food, submitted_response)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (
+        data["user_id"],
+        data["food_item_id"],
+        data["date"],
+        data["will_attend"],
+        data["clicked_food"],
+        data["submitted_response"]
+    ))
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({"message": "Response recorded successfully"})
+
+# -----------------------
+# Expected Demand
+# -----------------------
+@app.route("/expected-demand", methods=["GET"])
+def expected_demand():
+
+    food_item_id = request.args.get("food_item_id")
+    date = request.args.get("date")
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT COUNT(*) as total_attending
+        FROM student_responses
+        WHERE food_item_id=? AND date=? AND will_attend=1
+    """, (food_item_id, date))
+
+    attending = cursor.fetchone()["total_attending"]
+
+    cursor.execute("""
+        SELECT COUNT(*) as total_clicks
+        FROM student_responses
+        WHERE food_item_id=? AND date=? AND clicked_food=1
+    """, (food_item_id, date))
+
+    clicks = cursor.fetchone()["total_clicks"]
+
+    conn.close()
+
+    return jsonify({
+        "expected_attendance": attending,
+        "food_interest_clicks": clicks
+    })
+# -----------------------
+# Smart Prediction Engine
+# -----------------------
+@app.route("/smart-predict", methods=["POST"])
+def smart_predict():
+
+    data = request.json
+    campus_id = data["campus_id"]
+    food_item_id = data["food_item_id"]
+    date = data["date"]
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    # 1️⃣ Get student attendance count
+    cursor.execute("""
+        SELECT COUNT(*) as total_attending
+        FROM student_responses
+        WHERE food_item_id=? AND date=? AND will_attend=1
+    """, (food_item_id, date))
+    attendance = cursor.fetchone()["total_attending"]
+
+    # 2️⃣ Get previous day sales
+    cursor.execute("""
+        SELECT quantity_sold
+        FROM actual_sales
+        WHERE food_item_id=? AND date < ?
+        ORDER BY date DESC
+        LIMIT 1
+    """, (food_item_id, date))
+    prev = cursor.fetchone()
+    prev_day_sales = prev["quantity_sold"] if prev else 80
+
+    # 3️⃣ Get weather
+    cursor.execute("""
+        SELECT temperature
+        FROM weather_data
+        WHERE campus_id=? AND date=?
+    """, (campus_id, date))
+    weather = cursor.fetchone()
+    temperature = weather["temperature"] if weather else 30
+
+    # 4️⃣ Get event data
+    cursor.execute("""
+        SELECT is_exam_day, is_event_day, is_holiday
+        FROM event_calendar
+        WHERE campus_id=? AND date=?
+    """, (campus_id, date))
+    event = cursor.fetchone()
+
+    if event:
+        is_exam_day = event["is_exam_day"]
+        is_event_day = event["is_event_day"]
+        is_holiday = event["is_holiday"]
+    else:
+        is_exam_day = 0
+        is_event_day = 0
+        is_holiday = 0
+
+    conn.close()
+
+    # Encode food item
+    food_name = data["food_name"]
+    food_encoded = label_encoder.transform([food_name])[0]
+
+    # Build model input
+    input_data = pd.DataFrame([{
+        "day_of_week": pd.to_datetime(date).weekday(),
+        "week_of_year": pd.to_datetime(date).week,
+        "food_item": food_encoded,
+        "temperature": temperature,
+        "is_exam_day": is_exam_day,
+        "is_event_day": is_event_day,
+        "is_holiday": is_holiday,
+        "avg_last_7_days_sales": attendance,
+        "prev_day_sales": prev_day_sales
+    }])
+
+    prediction = model.predict(input_data)[0]
+
+    # 🧠 Calculate adaptive buffer
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT AVG(error_value) as avg_error
+        FROM predictions
+        WHERE food_item_id=? AND error_value IS NOT NULL
+    """, (food_item_id,))
+
+    result = cursor.fetchone()
+    avg_error = result["avg_error"] if result["avg_error"] else 0
+
+    conn.close()
+
+    buffer = int(avg_error)
+    final_prediction = int(prediction + buffer)
+
+    # 🔥 STORE PREDICTION
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        INSERT INTO predictions
+        (campus_id, food_item_id, date, base_prediction, buffer_added, final_prediction)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (
+        campus_id,
+        food_item_id,
+        date,
+        float(prediction),
+        buffer,
+        final_prediction
+    ))
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({
+        "base_prediction": round(float(prediction), 2),
+        "buffer_added": buffer,
+        "final_servings_to_prepare": final_prediction
+    })
+
+@app.route("/update-actual-sales", methods=["POST"])
+def update_actual_sales():
+
+    data = request.json
+    campus_id = data["campus_id"]
+    food_item_id = data["food_item_id"]
+    date = data["date"]
+    actual_sold = data["actual_sold"]
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    # Update prediction record
+    cursor.execute("""
+        SELECT final_prediction FROM predictions
+        WHERE campus_id=? AND food_item_id=? AND date=?
+    """, (campus_id, food_item_id, date))
+
+    record = cursor.fetchone()
+
+    if record:
+        predicted = record["final_prediction"]
+        error = abs(predicted - actual_sold)
+
+        cursor.execute("""
+            UPDATE predictions
+            SET actual_sold=?, error_value=?
+            WHERE campus_id=? AND food_item_id=? AND date=?
+        """, (actual_sold, error,
+              campus_id, food_item_id, date))
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({"message": "Actual sales updated"})
+
 
 if __name__ == "__main__":
     app.run(debug=True)
