@@ -4,6 +4,8 @@ import sqlite3
 import pickle
 import pandas as pd
 import os
+from apscheduler.schedulers.background import BackgroundScheduler
+import subprocess
 
 app = Flask(__name__)
 CORS(app)
@@ -191,6 +193,13 @@ def submit_response():
         data["submitted_response"]
     ))
 
+    # Add reward points
+    cursor.execute("""
+        UPDATE rewards
+        SET points = points + 5
+        WHERE user_id=?
+    """, (data["user_id"],))
+
     conn.commit()
     conn.close()
 
@@ -310,23 +319,29 @@ def smart_predict():
 
     prediction = model.predict(input_data)[0]
 
-    # 🧠 Calculate adaptive buffer
+    # 🧠 Adaptive buffer per food item
     conn = get_db_connection()
     cursor = conn.cursor()
 
     cursor.execute("""
-        SELECT AVG(error_value) as avg_error
+        SELECT 
+            AVG(ABS(final_prediction - actual_sold) * 1.0 / final_prediction) as error_percent
         FROM predictions
-        WHERE food_item_id=? AND error_value IS NOT NULL
+        WHERE food_item_id=? 
+        AND actual_sold IS NOT NULL
     """, (food_item_id,))
 
     result = cursor.fetchone()
-    avg_error = result["avg_error"] if result["avg_error"] else 0
-
     conn.close()
 
-    buffer = int(avg_error)
+    if result["error_percent"]:
+        adaptive_buffer_percent = result["error_percent"]
+    else:
+        adaptive_buffer_percent = 0.10  # default 10%
+
+    buffer = int(prediction * adaptive_buffer_percent)
     final_prediction = int(prediction + buffer)
+
 
     # 🔥 STORE PREDICTION
     conn = get_db_connection()
@@ -373,6 +388,15 @@ def update_actual_sales():
     """, (campus_id, food_item_id, date))
 
     record = cursor.fetchone()
+    # Bonus reward for attendance
+    cursor.execute("""
+        UPDATE rewards
+        SET points = points + 10
+        WHERE user_id IN (
+            SELECT user_id FROM student_responses
+            WHERE date=? AND will_attend=1
+        )
+    """, (date,))
 
     if record:
         predicted = record["final_prediction"]
@@ -390,6 +414,104 @@ def update_actual_sales():
 
     return jsonify({"message": "Actual sales updated"})
 
+@app.route("/get-rewards", methods=["GET"])
+def get_rewards():
+    user_id = request.args.get("user_id")
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT points FROM rewards WHERE user_id=?
+    """, (user_id,))
+
+    result = cursor.fetchone()
+    conn.close()
+
+    points = result["points"] if result else 0
+
+    return jsonify({"reward_points": points})
+
+@app.route("/leaderboard", methods=["GET"])
+def leaderboard():
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT users.name, rewards.points
+        FROM rewards
+        JOIN users ON rewards.user_id = users.id
+        ORDER BY rewards.points DESC
+        LIMIT 10
+    """)
+
+    leaders = cursor.fetchall()
+    conn.close()
+
+    return jsonify([dict(row) for row in leaders])
+
+@app.route("/waste-score", methods=["GET"])
+def waste_score():
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT 
+            SUM(final_prediction) as total_prepared,
+            SUM(final_prediction - actual_sold) as total_waste
+        FROM predictions
+        WHERE actual_sold IS NOT NULL
+    """)
+
+    result = cursor.fetchone()
+    conn.close()
+
+    if result["total_prepared"] and result["total_waste"] is not None:
+        waste_percent = (result["total_waste"] / result["total_prepared"]) * 100
+    else:
+        waste_percent = 0
+
+    return jsonify({
+        "waste_percentage": round(waste_percent, 2)
+    })
+
+@app.route("/food-waste-score", methods=["GET"])
+def food_waste_score():
+
+    food_item_id = request.args.get("food_item_id")
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT 
+            SUM(final_prediction) as total_prepared,
+            SUM(final_prediction - actual_sold) as total_waste
+        FROM predictions
+        WHERE food_item_id=? 
+        AND actual_sold IS NOT NULL
+    """, (food_item_id,))
+
+    result = cursor.fetchone()
+    conn.close()
+
+    if result["total_prepared"] and result["total_waste"] is not None:
+        waste_percent = (result["total_waste"] / result["total_prepared"]) * 100
+    else:
+        waste_percent = 0
+
+    return jsonify({
+        "food_waste_percentage": round(waste_percent, 2)
+    })
+
+def weekly_retrain():
+    subprocess.call(["python", "model/retrain_model.py"])
+
+scheduler = BackgroundScheduler()
+scheduler.add_job(weekly_retrain, 'interval', weeks=1)
+scheduler.start()
 
 if __name__ == "__main__":
     app.run(debug=True)
