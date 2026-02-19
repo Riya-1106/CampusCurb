@@ -3,95 +3,124 @@ import sqlite3
 conn = sqlite3.connect("database.db")
 cursor = conn.cursor()
 
-# -----------------------------------
-# USERS TABLE
-# -----------------------------------
+# USERS
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS users (
-    user_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT,
-    department TEXT,
-    year INTEGER,
-    is_hosteller INTEGER
+    email TEXT UNIQUE,
+    password TEXT,
+    role TEXT,
+    campus_id INTEGER,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 )
 """)
 
-# -----------------------------------
-# MENU TABLE
-# -----------------------------------
+# CAMPUSES
 cursor.execute("""
-CREATE TABLE IF NOT EXISTS menu (
-    menu_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    date TEXT,
-    time_slot TEXT,
-    food_item TEXT,
-    food_category TEXT,
+CREATE TABLE IF NOT EXISTS campuses (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    campus_name TEXT,
+    location TEXT
+)
+""")
+
+# FOOD ITEMS
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS food_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    food_name TEXT,
+    category TEXT,
     price REAL,
-    is_veg INTEGER
+    is_active INTEGER DEFAULT 1
 )
 """)
 
-# -----------------------------------
-# DAILY RESPONSES TABLE
-# -----------------------------------
+# DAILY MENU
 cursor.execute("""
-CREATE TABLE IF NOT EXISTS daily_responses (
-    response_id INTEGER PRIMARY KEY AUTOINCREMENT,
+CREATE TABLE IF NOT EXISTS daily_menu (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    campus_id INTEGER,
+    date TEXT,
+    food_item_id INTEGER,
+    timing_slot TEXT
+)
+""")
+
+# STUDENT RESPONSES
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS student_responses (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER,
+    food_item_id INTEGER,
     date TEXT,
-    time_slot TEXT,
-    is_coming INTEGER,
-    selected_dish TEXT,
-    notification_clicked INTEGER,
-    response_time TEXT,
-    FOREIGN KEY(user_id) REFERENCES users(user_id)
+    will_attend INTEGER,
+    clicked_food INTEGER,
+    submitted_response INTEGER,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 )
 """)
 
-# -----------------------------------
-# DISH CLICK TRACKING
-# -----------------------------------
+# ACTUAL SALES
 cursor.execute("""
-CREATE TABLE IF NOT EXISTS dish_clicks (
-    click_id INTEGER PRIMARY KEY AUTOINCREMENT,
+CREATE TABLE IF NOT EXISTS actual_sales (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    campus_id INTEGER,
+    food_item_id INTEGER,
     date TEXT,
-    time_slot TEXT,
-    food_item TEXT,
-    click_count INTEGER
-)
-""")
-
-# -----------------------------------
-# PREDICTION LOG TABLE
-# -----------------------------------
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS prediction_log (
-    prediction_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    date TEXT,
-    time_slot TEXT,
-    food_item TEXT,
-    confirmed_count INTEGER,
-    predicted_quantity INTEGER,
-    buffer_added INTEGER
-)
-""")
-
-# -----------------------------------
-# ACTUAL SALES DATA
-# -----------------------------------
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS actual_food_data (
-    actual_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    date TEXT,
-    time_slot TEXT,
-    food_item TEXT,
     quantity_prepared INTEGER,
     quantity_sold INTEGER,
-    quantity_wasted INTEGER
+    leftover_quantity INTEGER
+)
+""")
+
+# WEATHER DATA
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS weather_data (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    campus_id INTEGER,
+    date TEXT,
+    temperature REAL,
+    rainfall REAL
+)
+""")
+
+# EVENT CALENDAR
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS event_calendar (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    campus_id INTEGER,
+    date TEXT,
+    is_exam_day INTEGER,
+    is_event_day INTEGER,
+    is_holiday INTEGER,
+    description TEXT
+)
+""")
+
+# REWARDS
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS rewards (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    points INTEGER DEFAULT 0,
+    last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)
+""")
+
+# FOOD FEEDBACK
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS food_feedback (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    food_item_id INTEGER,
+    rating INTEGER,
+    comment TEXT,
+    date TEXT
 )
 """)
 
 conn.commit()
 conn.close()
 
-print("✅ Large Database Initialized Successfully")
+print("✅ Database initialized successfully!")
