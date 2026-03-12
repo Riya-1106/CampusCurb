@@ -1,67 +1,44 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'menu_screen.dart';
+import 'attendance_screen.dart';
+import 'leaderboard_screen.dart';
+import 'rewards_screen.dart';
 
 class StudentDashboard extends StatelessWidget {
   const StudentDashboard({super.key});
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            colors: [Color(0xFF4A90E2), Color(0xFF9013FE)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
+  Widget dashboardCard(
+    BuildContext context,
+    String title,
+    IconData icon,
+    Widget screen,
+  ) {
+    return GestureDetector(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (context) => screen),
+        );
+      },
+      child: Card(
+        elevation: 5,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+        child: Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(15),
+            color: Colors.blue.shade50,
           ),
-        ),
-        child: SafeArea(
           child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const SizedBox(height: 20),
-              const Text(
-                "CampusCurb",
-                style: TextStyle(
-                  fontSize: 28,
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
+              Icon(icon, size: 40, color: Colors.blue),
               const SizedBox(height: 10),
-              const Text(
-                "Welcome Student 👩‍🎓",
-                style: TextStyle(color: Colors.white70),
-              ),
-              const SizedBox(height: 30),
-
-              Expanded(
-                child: Container(
-                  padding: const EdgeInsets.all(20),
-                  decoration: const BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.vertical(
-                      top: Radius.circular(30),
-                    ),
-                  ),
-                  child: Column(
-                    children: [
-                      _buildCard("Today's Menu 🍛"),
-                      _buildCard("Mark Attendance ✅"),
-                      _buildCard("Leaderboard 🏆"),
-                      _buildCard("My Points 💰"),
-                      const Spacer(),
-                      ElevatedButton(
-                        onPressed: () async {
-                          await FirebaseAuth.instance.signOut();
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.red,
-                          minimumSize: const Size(double.infinity, 50),
-                        ),
-                        child: const Text("Logout"),
-                      ),
-                    ],
-                  ),
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
                 ),
               ),
             ],
@@ -71,20 +48,46 @@ class StudentDashboard extends StatelessWidget {
     );
   }
 
-  Widget _buildCard(String title) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 15),
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.grey.shade100,
-        borderRadius: BorderRadius.circular(15),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(title, style: const TextStyle(fontSize: 16)),
-          const Icon(Icons.arrow_forward_ios, size: 16),
-        ],
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text("Student Dashboard"), centerTitle: true),
+      body: Padding(
+        padding: const EdgeInsets.all(16),
+        child: GridView.count(
+          crossAxisCount: 2,
+          crossAxisSpacing: 15,
+          mainAxisSpacing: 15,
+          children: [
+            dashboardCard(
+              context,
+              "View Menu",
+              Icons.restaurant_menu,
+              const MenuScreen(),
+            ),
+
+            dashboardCard(
+              context,
+              "Mark Attendance",
+              Icons.check_circle,
+              const AttendanceScreen(),
+            ),
+
+            dashboardCard(
+              context,
+              "Leaderboard",
+              Icons.emoji_events,
+              const LeaderboardScreen(),
+            ),
+
+            dashboardCard(
+              context,
+              "My Rewards",
+              Icons.card_giftcard,
+              const RewardsScreen(),
+            ),
+          ],
+        ),
       ),
     );
   }
