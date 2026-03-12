@@ -232,6 +232,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                       email: user.email!,
                                       role: _selectedRole,
                                     );
+                                    await _authService.logout();
                                     Navigator.pop(context);
                                   }
                                 },

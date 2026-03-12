@@ -1,16 +1,25 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 
 class FirestoreService {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
-  Future<String?> getUserRole() async {
-    User? user = FirebaseAuth.instance.currentUser;
+  // Create new user document
+  Future<void> createUser({
+    required String uid,
+    required String email,
+    required String role,
+  }) async {
+    await _db.collection('users').doc(uid).set({
+      'email': email,
+      'role': role,
+      'points': 0,
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+  }
 
-    if (user == null) return null;
-
-    DocumentSnapshot doc = await _db.collection('users').doc(user.uid).get();
-
-    return doc['role'];
+  // Get user role
+  Future<String?> getUserRole(String uid) async {
+    final doc = await _db.collection('users').doc(uid).get();
+    return doc.data()?['role'];
   }
 }
