@@ -236,7 +236,7 @@ This helps evaluate **model accuracy over time**.
 The model can be retrained periodically using newly collected data.
 
 Process:
-<img width="1000" height="546" alt="Gemini_Generated_Image_anvb50anvb50anvb" src="https://github.com/user-attachments/assets/faba2b6a-8dba-4759-8c70-a8bab7f9940c" />
+<img width="500" height="273" alt="Gemini_Generated_Image_anvb50anvb50anvb" src="https://github.com/user-attachments/assets/faba2b6a-8dba-4759-8c70-a8bab7f9940c" />
 
 ---
 
