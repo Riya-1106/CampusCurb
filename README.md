@@ -241,7 +241,7 @@ Process:
 ---
 
 # System Architecture
-<img width="1408" height="768" alt="Gemini_Generated_Image_usjzlfusjzlfusjz" src="https://github.com/user-attachments/assets/b3c51cfa-9c4f-4e7a-ab81-ac1c5addfd0a" />
+<img width="500" height="273" alt="Gemini_Generated_Image_usjzlfusjzlfusjz" src="https://github.com/user-attachments/assets/b3c51cfa-9c4f-4e7a-ab81-ac1c5addfd0a" />
 
 ---
 
@@ -284,7 +284,7 @@ Collections used:
 ---
 
 # Project Workflow
-<img width="1408" height="768" alt="Gemini_Generated_Image_sa98jfsa98jfsa98" src="https://github.com/user-attachments/assets/894ae725-6742-4da3-b08e-eeede95819a1" />
+<img width="500" height="273" alt="Gemini_Generated_Image_sa98jfsa98jfsa98" src="https://github.com/user-attachments/assets/894ae725-6742-4da3-b08e-eeede95819a1" />
 
 ---
 
