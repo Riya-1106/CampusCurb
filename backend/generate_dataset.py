@@ -32,7 +32,22 @@ for i in range(rows):
     prev_slot = prev_day + random.randint(-20,20)
 
     quantity_prepared = random.randint(80,220)
-    quantity_sold = quantity_prepared - random.randint(0,40)
+
+    noise = random.randint(-10, 10)
+    quantity_sold = quantity_prepared - random.randint(0,40) + noise    
+
+    weather = random.choice(weather_types)
+
+    if weather == "Rainy":
+        quantity_prepared = random.randint(120,220)  # more tea/coffee demand
+    elif weather == "Sunny":
+        quantity_prepared = random.randint(80,180)
+    else:
+        quantity_prepared = random.randint(100,200)
+
+    slot = random.choice(["09:00-11:00","11:00-13:00","13:00-15:00"])
+    if slot == "11:00-13:00":
+        quantity_prepared += random.randint(30,60)  # lunch peak
 
     row = {
 
