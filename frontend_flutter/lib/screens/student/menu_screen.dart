@@ -5,12 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 class MenuScreen extends StatelessWidget {
   const MenuScreen({super.key});
 
-  Future<void> placeOrder(
-      BuildContext context,
-      String item,
-      int price,
-      ) async {
-
+  Future<void> placeOrder(BuildContext context, String item, int price) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
@@ -19,64 +14,64 @@ class MenuScreen extends StatelessWidget {
       "item": item,
       "price": price,
       "quantity": 1,
-      "time": DateTime.now()
+      "time": DateTime.now(),
     });
 
-    await FirebaseFirestore.instance
-        .collection('users')
-        .doc(user.uid)
-        .update({
-      'points': FieldValue.increment(2)
+    await FirebaseFirestore.instance.collection('users').doc(user.uid).update({
+      'points': FieldValue.increment(2),
     });
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text("$item ordered successfully")),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text("$item ordered successfully")));
   }
 
   @override
   Widget build(BuildContext context) {
-
     return Scaffold(
-      appBar: AppBar(
-        title: const Text("Today's Menu"),
-      ),
+      appBar: AppBar(title: const Text("Today's Menu")),
 
       body: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance
-            .collection('menu')
-            .snapshots(),
+        stream: FirebaseFirestore.instance.collection('menu').snapshots(),
         builder: (context, snapshot) {
-
           if (!snapshot.hasData) {
             return const Center(child: CircularProgressIndicator());
           }
 
           final items = snapshot.data!.docs;
 
-          if (items.isEmpty) {
+          final menuItems = items.where((doc) {
+            final data = doc.data() as Map<String, dynamic>;
+            return data.containsKey('name') && data.containsKey('price');
+          }).toList();
+
+          if (menuItems.isEmpty) {
             return const Center(child: Text("No menu available"));
           }
 
           return ListView.builder(
-            itemCount: items.length,
+            itemCount: menuItems.length,
             itemBuilder: (context, index) {
+              final doc = menuItems[index];
+              final data = doc.data() as Map<String, dynamic>;
+              final itemName = (data['name'] ?? 'Unnamed Item').toString();
 
-              final item = items[index];
+              final priceValue = data['price'];
+              final itemPrice = priceValue is int
+                  ? priceValue
+                  : int.tryParse(priceValue?.toString() ?? '') ?? 0;
 
               return Card(
                 margin: const EdgeInsets.all(10),
                 child: ListTile(
-                  title: Text(item['name']),
-                  subtitle: Text("₹${item['price']}"),
+                  title: Text(itemName),
+                  subtitle: Text("₹$itemPrice"),
                   trailing: ElevatedButton(
-                    onPressed: () {
-                      placeOrder(
-                        context,
-                        item['name'],
-                        item['price'],
-                      );
-                    },
+                    onPressed: itemPrice > 0
+                        ? () {
+                            placeOrder(context, itemName, itemPrice);
+                          }
+                        : null,
                     child: const Text("Order"),
                   ),
                 ),
