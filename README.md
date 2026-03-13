@@ -68,10 +68,10 @@ The system tracks:
 - Waste Percentage
 
 Example:
-Total Prepared: 5000 meals
-Total Sold: 4200 meals
-Total Wasted: 800 meals
-Waste Percentage: 16%
+- Total Prepared: 5000 meals
+- Total Sold: 4200 meals
+- Total Wasted: 800 meals
+- Waste Percentage: 16%
 The system also estimates **waste reduction achieved through ML predictions**.
 
 ---
@@ -133,9 +133,9 @@ Admin controls the system and can:
 Colleges can share surplus food.
 
 Example scenario:
-College A → 50 sandwiches remaining
-College B → requests food
-Admin → approves transfer
+- College A → 50 sandwiches remaining
+- College B → requests food
+- Admin → approves transfer
 This feature helps reduce **large‑scale food waste across institutions**.
 
 ---
@@ -212,8 +212,8 @@ Example influential features:
 The trained model predicts demand for each food item.
 
 Example:
-Predicted Demand: 120
-Suggested Preparation: 132
+- Predicted Demand: 120
+- Suggested Preparation: 132
 
 ---
 
@@ -227,7 +227,6 @@ Example log:
 - Actual Sales: 115
 - Prediction Error: 5
 
-
 This helps evaluate **model accuracy over time**.
 
 ---
@@ -237,7 +236,7 @@ This helps evaluate **model accuracy over time**.
 The model can be retrained periodically using newly collected data.
 
 Process:
-<img width="1408" height="768" alt="Gemini_Generated_Image_anvb50anvb50anvb" src="https://github.com/user-attachments/assets/faba2b6a-8dba-4759-8c70-a8bab7f9940c" />
+<img width="1000" height="546" alt="Gemini_Generated_Image_anvb50anvb50anvb" src="https://github.com/user-attachments/assets/faba2b6a-8dba-4759-8c70-a8bab7f9940c" />
 
 ---
 
