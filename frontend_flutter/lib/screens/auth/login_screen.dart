@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../services/auth_service.dart';
-import '../../services/firestore_service.dart';
 import 'register_screen.dart';
 import '../student/student_dashboard.dart';
 import '../canteen/canteen_dashboard.dart';
@@ -28,7 +27,6 @@ class _LoginScreenState extends State<LoginScreen> {
         child: SingleChildScrollView(
           child: Column(
             children: [
-
               // 🔷 TOP GRADIENT HEADER
               Container(
                 height: 200,
@@ -61,10 +59,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       SizedBox(height: 5),
                       Text(
                         "Welcome Back",
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: Colors.white70,
-                        ),
+                        style: TextStyle(fontSize: 14, color: Colors.white70),
                       ),
                     ],
                   ),
@@ -88,7 +83,6 @@ class _LoginScreenState extends State<LoginScreen> {
                         constraints: const BoxConstraints(maxWidth: 400),
                         child: Column(
                           children: [
-
                             // EMAIL
                             TextField(
                               controller: _emailController,
@@ -155,27 +149,32 @@ class _LoginScreenState extends State<LoginScreen> {
                                       Navigator.pushReplacement(
                                         context,
                                         MaterialPageRoute(
-                                          builder: (_) => const StudentDashboard(),
+                                          builder: (_) =>
+                                              const StudentDashboard(),
                                         ),
                                       );
                                     } else if (role == 'canteen') {
                                       Navigator.pushReplacement(
                                         context,
                                         MaterialPageRoute(
-                                          builder: (_) => const CanteenDashboard(),
+                                          builder: (_) =>
+                                              const CanteenDashboard(),
                                         ),
                                       );
                                     } else {
                                       Navigator.pushReplacement(
                                         context,
                                         MaterialPageRoute(
-                                          builder: (_) => const FacultyDashboard(),
+                                          builder: (_) =>
+                                              const FacultyDashboard(),
                                         ),
                                       );
                                     }
                                   } else {
                                     ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(content: Text("Login failed")),
+                                      const SnackBar(
+                                        content: Text("Login failed"),
+                                      ),
                                     );
                                   }
                                 },
@@ -206,7 +205,6 @@ class _LoginScreenState extends State<LoginScreen> {
                                 ),
                               ),
                             ),
-
                           ],
                         ),
                       ),

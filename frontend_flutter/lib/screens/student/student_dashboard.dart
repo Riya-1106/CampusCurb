@@ -10,11 +10,11 @@ class StudentDashboard extends StatelessWidget {
   const StudentDashboard({super.key});
 
   Widget dashboardCard(
-      BuildContext context,
-      String title,
-      IconData icon,
-      Widget screen,
-      ) {
+    BuildContext context,
+    String title,
+    IconData icon,
+    Widget screen,
+  ) {
     return GestureDetector(
       onTap: () {
         Navigator.push(
@@ -23,28 +23,31 @@ class StudentDashboard extends StatelessWidget {
         );
       },
       child: Card(
-        elevation: 5,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(15),
-        ),
+        elevation: 8,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         child: Container(
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(15),
-            color: Colors.blue.shade50,
+            borderRadius: BorderRadius.circular(20),
+            gradient: LinearGradient(
+              colors: [Colors.blue.shade50, Colors.blue.shade100],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
           ),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(icon, size: 40, color: Colors.blue),
+              Icon(icon, size: 40, color: Colors.blue.shade700),
               const SizedBox(height: 10),
               Text(
                 title,
                 style: const TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
+                  color: Colors.black87,
                 ),
-              )
+              ),
             ],
           ),
         ),
@@ -55,20 +58,18 @@ class StudentDashboard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.grey.shade100,
       appBar: AppBar(
         title: const Text("Student Dashboard"),
         centerTitle: true,
-
+        backgroundColor: const Color(0xFF4A90E2),
         actions: [
-
           /// 🔔 Notification Icon
           IconButton(
             icon: const Icon(Icons.notifications_none),
             onPressed: () {
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text("No notifications yet"),
-                ),
+                const SnackBar(content: Text("No notifications yet")),
               );
             },
           ),
@@ -80,7 +81,6 @@ class StudentDashboard extends StatelessWidget {
               child: Icon(Icons.person, size: 18),
             ),
             onSelected: (value) async {
-
               if (value == "profile") {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(content: Text("Profile page coming soon")),
@@ -92,9 +92,7 @@ class StudentDashboard extends StatelessWidget {
 
                 Navigator.pushReplacement(
                   context,
-                  MaterialPageRoute(
-                    builder: (context) => const LoginScreen(),
-                  ),
+                  MaterialPageRoute(builder: (context) => const LoginScreen()),
                 );
               }
             },
@@ -126,43 +124,93 @@ class StudentDashboard extends StatelessWidget {
         ],
       ),
 
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: GridView.count(
-          crossAxisCount: 2,
-          crossAxisSpacing: 15,
-          mainAxisSpacing: 15,
-          children: [
+      body: SafeArea(
+        child: SingleChildScrollView(
+          child: Column(
+            children: [
+              // 🔷 TOP GRADIENT HEADER
+              Container(
+                height: 150,
+                width: double.infinity,
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [Color(0xFF4A90E2), Color(0xFF357ABD)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.only(
+                    bottomLeft: Radius.circular(30),
+                    bottomRight: Radius.circular(30),
+                  ),
+                ),
+                child: const Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.school, size: 40, color: Colors.white),
+                      SizedBox(height: 10),
+                      Text(
+                        "CampusCurb",
+                        style: TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
+                      SizedBox(height: 5),
+                      Text(
+                        "Order smarter, eat better",
+                        style: TextStyle(fontSize: 14, color: Colors.white70),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
 
-            dashboardCard(
-              context,
-              "View Menu",
-              Icons.restaurant_menu,
-              const MenuScreen(),
-            ),
+              const SizedBox(height: 20),
 
-            dashboardCard(
-              context,
-              "Mark Attendance",
-              Icons.check_circle,
-              const AttendanceScreen(),
-            ),
+              // 🔷 DASHBOARD CARDS
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: GridView.count(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  crossAxisCount: 2,
+                  crossAxisSpacing: 15,
+                  mainAxisSpacing: 15,
+                  children: [
+                    dashboardCard(
+                      context,
+                      "View Menu",
+                      Icons.restaurant_menu,
+                      const MenuScreen(),
+                    ),
 
-            dashboardCard(
-              context,
-              "Leaderboard",
-              Icons.emoji_events,
-              const LeaderboardScreen(),
-            ),
+                    dashboardCard(
+                      context,
+                      "Mark Attendance",
+                      Icons.check_circle,
+                      const AttendanceScreen(),
+                    ),
 
-            dashboardCard(
-              context,
-              "My Rewards",
-              Icons.card_giftcard,
-              const RewardsScreen(),
-            ),
+                    dashboardCard(
+                      context,
+                      "Leaderboard",
+                      Icons.emoji_events,
+                      const LeaderboardScreen(),
+                    ),
 
-          ],
+                    dashboardCard(
+                      context,
+                      "My Rewards",
+                      Icons.card_giftcard,
+                      const RewardsScreen(),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

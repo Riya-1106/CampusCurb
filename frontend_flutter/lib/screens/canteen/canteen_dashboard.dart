@@ -3,7 +3,6 @@ import '../../services/auth_service.dart';
 import '../auth/login_screen.dart';
 import 'menu_upload_screen.dart';
 import 'inventory_screen.dart';
-import 'menu_upload_screen.dart';
 import 'prediction_screen.dart';
 import 'waste_screen.dart';
 import 'analytics_screen.dart';
@@ -25,18 +24,22 @@ class CanteenDashboard extends StatelessWidget {
         );
       },
       child: Card(
-        elevation: 5,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+        elevation: 8,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         child: Container(
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(15),
-            color: Colors.orange.shade50,
+            borderRadius: BorderRadius.circular(20),
+            gradient: LinearGradient(
+              colors: [Colors.orange.shade50, Colors.orange.shade100],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
           ),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(icon, size: 40, color: Colors.orange),
+              Icon(icon, size: 40, color: Colors.orange.shade700),
               const SizedBox(height: 10),
               Text(
                 title,
@@ -44,6 +47,7 @@ class CanteenDashboard extends StatelessWidget {
                 style: const TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
+                  color: Colors.black87,
                 ),
               ),
             ],
@@ -56,9 +60,11 @@ class CanteenDashboard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.grey.shade100,
       appBar: AppBar(
         title: const Text("Canteen Dashboard"),
         centerTitle: true,
+        backgroundColor: const Color(0xFF4A90E2),
         actions: [
           /// 🔔 Notification Icon
           IconButton(
@@ -114,48 +120,100 @@ class CanteenDashboard extends StatelessWidget {
         ],
       ),
 
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: GridView.count(
-          crossAxisCount: 2,
-          crossAxisSpacing: 15,
-          mainAxisSpacing: 15,
-          children: [
-            dashboardCard(
-              context,
-              "Upload Menu",
-              Icons.restaurant_menu,
-              const MenuUploadScreen(),
-            ),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          child: Column(
+            children: [
+              // 🔷 TOP GRADIENT HEADER
+              Container(
+                height: 150,
+                width: double.infinity,
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [Color(0xFF4A90E2), Color(0xFF357ABD)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.only(
+                    bottomLeft: Radius.circular(30),
+                    bottomRight: Radius.circular(30),
+                  ),
+                ),
+                child: const Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.restaurant, size: 40, color: Colors.white),
+                      SizedBox(height: 10),
+                      Text(
+                        "Canteen Management",
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
+                      SizedBox(height: 5),
+                      Text(
+                        "Smart food operations",
+                        style: TextStyle(fontSize: 14, color: Colors.white70),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
 
-            dashboardCard(
-              context,
-              "View Orders",
-              Icons.receipt_long,
-              const InventoryScreen(),
-            ),
+              const SizedBox(height: 20),
 
-            dashboardCard(
-              context,
-              "Food Analytics",
-              Icons.analytics,
-              const PredictionScreen(),
-            ),
+              // 🔷 DASHBOARD CARDS
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: GridView.count(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  crossAxisCount: 2,
+                  crossAxisSpacing: 15,
+                  mainAxisSpacing: 15,
+                  children: [
+                    dashboardCard(
+                      context,
+                      "Upload Menu",
+                      Icons.restaurant_menu,
+                      const MenuUploadScreen(),
+                    ),
 
-            dashboardCard(
-              context,
-              "Food Waste",
-              Icons.delete_outline,
-              const WasteScreen(),
-            ),
+                    dashboardCard(
+                      context,
+                      "View Orders",
+                      Icons.receipt_long,
+                      const InventoryScreen(),
+                    ),
 
-            dashboardCard(
-              context,
-              "Analytics",
-              Icons.analytics,
-              const AnalyticsScreen(),
-            ),
-          ],
+                    dashboardCard(
+                      context,
+                      "Demand Forecast",
+                      Icons.trending_up,
+                      const PredictionScreen(),
+                    ),
+
+                    dashboardCard(
+                      context,
+                      "Waste Report",
+                      Icons.delete_outline,
+                      const WasteScreen(),
+                    ),
+
+                    dashboardCard(
+                      context,
+                      "Analytics",
+                      Icons.analytics,
+                      const AnalyticsScreen(),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

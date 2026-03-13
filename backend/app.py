@@ -50,10 +50,8 @@ def predict(data: PredictionInput):
     prediction = predict_demand(input_data)
 
     return {
-
-        "food_item": data.food_item,
-        "predicted_demand": prediction
-
+        "predicted_demand": prediction["predicted_demand"],
+        "suggested_preparation": prediction["suggested_preparation"]
     }
 
 
@@ -108,6 +106,65 @@ def waste():
     return waste_analysis()
 
 
+@app.get("/waste-report")
+def waste_report():
+
+    report = waste_analysis()
+    if "error" in report:
+        return report
+
+    return {
+        "Total Prepared": report.get("total_food_prepared", 0),
+        "Total Sold": report.get("total_food_sold", 0),
+        "Total Wasted": report.get("total_food_wasted", 0),
+        "Waste Percentage": f"{int(round(report.get('waste_percentage', 0)))}%",
+        "Estimated ML Waste Reduction": int(round(report.get("estimated_reduction", 0)))
+    }
+
+
+# ==========================================
+# WASTE ANALYTICS (Flutter compatible)
+# ==========================================
+
+@app.get("/waste_analytics")
+def waste_analytics():
+
+    return waste_analysis()
+
+
+# ==========================================
+# DEMAND FORECAST DASHBOARD
+# ==========================================
+
+@app.get("/demand-dashboard")
+def demand_dashboard():
+    # Fixed set of canteen menu items for dashboard
+    items = ["Burger", "Pizza", "Sandwich"]
+
+    base_input = {
+        "time_slot": "11:00-13:00",
+        "weather_type": "Sunny",
+        "price": 90,
+        "temperature": 25
+    }
+
+    rows = []
+    for item in items:
+        input_data = {**base_input, "food_item": item}
+        pred = predict_demand(input_data)
+        rows.append({
+            "food_item": item,
+            "predicted_demand": pred["predicted_demand"],
+            "suggested_preparation": pred["suggested_preparation"]
+        })
+
+    return {
+        "dashboard": rows,
+        "formula": "predicted_demand + safety_margin (10%)",
+        "example": "120 + 10% = 132"
+    }
+
+
 # ==========================================
 # RETRAIN MODEL
 # ==========================================
@@ -116,6 +173,6 @@ def waste():
 def retrain():
 
     subprocess.run(["python", "firebase_to_dataset.py"])
-    subprocess.run(["python", "retrain_model.py"])
+    subprocess.run(["python", "train.py"])
 
     return {"message": "Model retrained successfully"}

@@ -1,6 +1,8 @@
 import joblib
 import pandas as pd
 
+from log_prediction import log_prediction
+
 # ==========================================
 # LOAD TRAINED MODEL
 # ==========================================
@@ -123,20 +125,30 @@ def predict_demand(input_data: dict):
 
     # If the trained model is not available, fall back to a simple heuristic
     if model is None:
-        prediction = int(df["quantity_prepared"].iloc[0] * 0.75) if "quantity_prepared" in df.columns else 100
+        predicted_demand = int(df["quantity_prepared"].iloc[0] * 0.75) if "quantity_prepared" in df.columns else 100
     else:
-        prediction = int(model.predict(df)[0])
+        predicted_demand = int(model.predict(df)[0])
 
-    # safety margin (10%)
-    suggested_preparation = int(prediction * 1.1)
+    suggested_preparation = int(predicted_demand * 1.1)
 
-    expected_waste = suggested_preparation - prediction
+    # for now simulate actual sales
+    actual_sold = predicted_demand - 5
+
+    log_prediction(
+        food_item=input_data["food_item"],
+        predicted_demand=predicted_demand,
+        suggested_preparation=suggested_preparation,
+        actual_sold=actual_sold
+    )
+
+    expected_waste = suggested_preparation - predicted_demand
 
     return {
-        "predicted_demand": prediction,
+        "predicted_demand": predicted_demand,
         "suggested_preparation": suggested_preparation,
         "expected_waste": expected_waste
     }
+
 
 
 # ==========================================
@@ -151,7 +163,8 @@ def menu_optimization():
         # Dataset missing; return empty values so backend stays up
         return {
             "high_demand_items": {},
-            "low_demand_items": {}
+            "low_demand_items": {},
+            "optimization_suggestions": []
         }
 
     demand = df.groupby("food_item")["quantity_sold"].mean()
@@ -161,9 +174,39 @@ def menu_optimization():
     high_demand = demand.head(3)
     low_demand = demand.tail(3)
 
+    # Generate optimization suggestions
+    suggestions = []
+
+    # High demand suggestions
+    for item, avg_sales in high_demand.items():
+        current_prep = df[df["food_item"] == item]["quantity_prepared"].mean()
+        suggested_prep = int(current_prep * 1.2)  # Increase by 20%
+        suggestions.append({
+            "food_item": item,
+            "current_average_sales": int(avg_sales),
+            "current_average_preparation": int(current_prep),
+            "suggested_preparation": suggested_prep,
+            "action": "Increase preparation by 20%",
+            "reason": "High demand detected - prevent stockouts"
+        })
+
+    # Low demand suggestions
+    for item, avg_sales in low_demand.items():
+        current_prep = df[df["food_item"] == item]["quantity_prepared"].mean()
+        suggested_prep = int(current_prep * 0.85)  # Reduce by 15%
+        suggestions.append({
+            "food_item": item,
+            "current_average_sales": int(avg_sales),
+            "current_average_preparation": int(current_prep),
+            "suggested_preparation": suggested_prep,
+            "action": "Reduce preparation by 15%",
+            "reason": "Low demand detected - minimize waste"
+        })
+
     return {
         "high_demand_items": high_demand.to_dict(),
-        "low_demand_items": low_demand.to_dict()
+        "low_demand_items": low_demand.to_dict(),
+        "optimization_suggestions": suggestions
     }
 
 

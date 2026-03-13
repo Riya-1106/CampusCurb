@@ -1,0 +1,20 @@
+2026-03-13 22:12:53,434 - INFO - Auto retraining started
+2026-03-13 22:12:56,543 - ERROR - Retraining failed: firebase_to_dataset.py failed: Traceback (most recent call last):
+  File "C:\Mini Project\CampusCurb\CampusCurb\backend\firebase_to_dataset.py", line 12, in <module>
+    cred = credentials.Certificate("firebase_key.json")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\offic\AppData\Local\Programs\Python\Python311\Lib\site-packages\firebase_admin\credentials.py", line 97, in __init__
+    with open(cert, encoding='utf-8') as json_file:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: 'firebase_key.json'
+
+2026-03-13 22:17:12,108 - INFO - Auto retraining started
+2026-03-13 22:17:13,068 - ERROR - Retraining failed: firebase_to_dataset.py failed: Traceback (most recent call last):
+  File "C:\Mini Project\CampusCurb\CampusCurb\backend\firebase_to_dataset.py", line 12, in <module>
+    cred = credentials.Certificate("firebase_key.json")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\offic\AppData\Local\Programs\Python\Python311\Lib\site-packages\firebase_admin\credentials.py", line 97, in __init__
+    with open(cert, encoding='utf-8') as json_file:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: 'firebase_key.json'
+

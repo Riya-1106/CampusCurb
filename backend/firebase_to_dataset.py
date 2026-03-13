@@ -95,14 +95,31 @@ for doc in docs:
     data.append(row)
 
 # ==========================================
-# STEP 3 : SAVE DATASET
+# STEP 3 : MERGE WITH EXISTING DATASET
 # ==========================================
 
-df = pd.DataFrame(data)
+df_new = pd.DataFrame(data)
 
-os.makedirs("data", exist_ok=True)
+# Load existing dataset if it exists
+existing_file = "models/food_demand_dataset.csv"
+if os.path.exists(existing_file):
+    df_existing = pd.read_csv(existing_file)
+    print(f"Loaded existing dataset with {len(df_existing)} rows")
 
-df.to_csv("data/weekly_data.csv", index=False)
+    # Append new data
+    df_combined = pd.concat([df_existing, df_new], ignore_index=True)
 
-print("Weekly dataset created")
-print(df.head())
+    # Remove duplicates based on date and food_item (simple deduplication)
+    df_combined = df_combined.drop_duplicates(subset=["date", "food_item"], keep="last")
+
+    print(f"Combined dataset has {len(df_combined)} rows (added {len(df_new)} new rows)")
+else:
+    df_combined = df_new
+    print(f"Created new dataset with {len(df_combined)} rows")
+
+# Save merged dataset
+os.makedirs("models", exist_ok=True)
+df_combined.to_csv(existing_file, index=False)
+
+print("Dataset merged and saved")
+print(df_combined.head())

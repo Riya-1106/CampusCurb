@@ -1,27 +1,17 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:http/http.dart' as http;
+
+import '../../services/prediction_service.dart';
 
 class LeaderboardScreen extends StatelessWidget {
   const LeaderboardScreen({super.key});
 
   Future<String> _fetchReward(int points) async {
     try {
-      final response = await http.get(
-        Uri.parse("http://10.0.2.2:8000/rewards/$points"),
-      );
-
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        return data['reward'] ?? "No reward";
-      }
+      return await PredictionService().getReward(points);
     } catch (_) {
-      // ignore errors and fall back
+      return "No reward";
     }
-
-    return "No reward";
   }
 
   @override
@@ -58,7 +48,7 @@ class LeaderboardScreen extends StatelessWidget {
                     title: Text(user['email']),
                     subtitle: Text(rewardText),
                     trailing: Text(
-                      "${points} pts",
+                      "$points pts",
                       style: const TextStyle(fontWeight: FontWeight.bold),
                     ),
                   );
