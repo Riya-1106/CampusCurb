@@ -144,34 +144,8 @@ This feature helps reduce **large‑scale food waste across institutions**.
 
 The ML workflow consists of the following steps.
 
-## 1 Dataset Generation
 
-Historical order data is converted into a dataset using backend scripts.
-
-Example features:
-- date
-- day_of_week
-- week_of_year
-- month
-- time_slot
-- is_weekend
-- is_exam_day
-- food_item
-- food_category
-- price
-- portion_size
-- prev_day_sales
-- avg_last_7_days_sales
-- sales_trend_weekly
-- quantity_prepared
-- quantity_sold
-- quantity_wasted
-- weather_type
-- temperature
-
----
-
-## 2 Data Preprocessing
+## 1 Data Preprocessing
 
 The preprocessing stage includes:
 
@@ -182,7 +156,7 @@ The preprocessing stage includes:
 
 ---
 
-## 3 Model Training
+## 2 Model Training
 
 Multiple machine learning algorithms are trained and compared:
 
@@ -194,7 +168,7 @@ The model with the best performance is selected.
 
 ---
 
-## 4 Feature Importance Analysis
+## 3 Feature Importance Analysis
 
 Feature importance visualization helps understand which factors affect food demand the most.
 
@@ -207,7 +181,7 @@ Example influential features:
 
 ---
 
-## 5 Prediction
+## 4 Prediction
 
 The trained model predicts demand for each food item.
 
@@ -217,7 +191,7 @@ Example:
 
 ---
 
-## 6 Prediction Monitoring
+## 5 Prediction Monitoring
 
 The system logs predictions and actual sales in Firebase.
 
@@ -231,10 +205,9 @@ This helps evaluate **model accuracy over time**.
 
 ---
 
-## 7 Continuous Model Retraining
+## 6 Continuous Model Retraining
 
 The model can be retrained periodically using newly collected data.
-
 ## Process:
 <img width="500" height="273" alt="Gemini_Generated_Image_anvb50anvb50anvb" src="https://github.com/user-attachments/assets/faba2b6a-8dba-4759-8c70-a8bab7f9940c" />
 
