@@ -5,18 +5,33 @@ import pandas as pd
 # LOAD TRAINED MODEL
 # ==========================================
 
-model = joblib.load("models/best_model.pkl")
+model = None
+dataset = None
 
-dataset = pd.read_csv("models/food_demand_dataset.csv")
+try:
+    model = joblib.load("models/best_model.pkl")
+except FileNotFoundError:
+    print("Warning: models/best_model.pkl not found. Using fallback predictions.")
+
+try:
+    dataset = pd.read_csv("models/food_demand_dataset.csv")
+except FileNotFoundError:
+    print("Warning: models/food_demand_dataset.csv not found. Some features will be limited.")
 
 # ==========================================
 # PREPARE ENCODING REFERENCES
 # ==========================================
 
-food_items = list(dataset["food_item"].unique())
-food_categories = list(dataset["food_category"].unique())
-time_slots = list(dataset["time_slot"].unique())
-weather_types = list(dataset["weather_type"].unique())
+if dataset is not None:
+    food_items = list(dataset["food_item"].unique())
+    food_categories = list(dataset["food_category"].unique())
+    time_slots = list(dataset["time_slot"].unique())
+    weather_types = list(dataset["weather_type"].unique())
+else:
+    food_items = []
+    food_categories = []
+    time_slots = []
+    weather_types = []
 
 
 # ==========================================
@@ -41,9 +56,14 @@ def predict_demand(input_data: dict):
     # CONVERT CATEGORICAL VALUES
     # ---------------------------------------
 
-    food_item = food_items.index(input_data["food_item"])
-    time_slot = time_slots.index(input_data["time_slot"])
-    weather = weather_types.index(input_data["weather_type"])
+    # If the dataset is missing or the value is unknown, fall back to 0
+    food_value = input_data.get("food_item")
+    time_value = input_data.get("time_slot")
+    weather_value = input_data.get("weather_type")
+
+    food_item = food_items.index(food_value) if (food_value in food_items) else 0
+    time_slot = time_slots.index(time_value) if (time_value in time_slots) else 0
+    weather = weather_types.index(weather_value) if (weather_value in weather_types) else 0
 
     # ---------------------------------------
     # BUILD MODEL INPUT ROW
@@ -101,7 +121,11 @@ def predict_demand(input_data: dict):
     # PREDICT
     # ---------------------------------------
 
-    prediction = int(model.predict(df)[0])
+    # If the trained model is not available, fall back to a simple heuristic
+    if model is None:
+        prediction = int(df["quantity_prepared"].iloc[0] * 0.75) if "quantity_prepared" in df.columns else 100
+    else:
+        prediction = int(model.predict(df)[0])
 
     # safety margin (10%)
     suggested_preparation = int(prediction * 1.1)
@@ -121,7 +145,14 @@ def predict_demand(input_data: dict):
 
 def menu_optimization():
 
-    df = pd.read_csv("models/food_demand_dataset.csv")
+    try:
+        df = pd.read_csv("models/food_demand_dataset.csv")
+    except FileNotFoundError:
+        # Dataset missing; return empty values so backend stays up
+        return {
+            "high_demand_items": {},
+            "low_demand_items": {}
+        }
 
     demand = df.groupby("food_item")["quantity_sold"].mean()
 

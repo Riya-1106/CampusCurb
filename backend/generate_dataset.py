@@ -5,11 +5,10 @@ from datetime import datetime, timedelta
 
 rows = 5204   # dataset size
 
-food_items = ["Burger","Sandwich","Pizza","Tea","Coffee","Milk","Pasta","Noodles"]
+food_items = ["Burger","Sandwich","Tea","Coffee","Milk","Pasta","Noodles"]
 categories = {
     "Burger":"FastFood",
     "Sandwich":"FastFood",
-    "Pizza":"FastFood",
     "Tea":"Beverage",
     "Coffee":"Beverage",
     "Milk":"Beverage",
