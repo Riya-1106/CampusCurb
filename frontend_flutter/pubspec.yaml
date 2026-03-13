@@ -39,6 +39,7 @@ dependencies:
   firebase_storage: any
   firebase_messaging: any
   provider: any
+  http: ^0.13.6
 
 dev_dependencies:
   flutter_test:

@@ -6,6 +6,7 @@ import 'inventory_screen.dart';
 import 'menu_upload_screen.dart';
 import 'prediction_screen.dart';
 import 'waste_screen.dart';
+import 'analytics_screen.dart';
 
 class CanteenDashboard extends StatelessWidget {
   const CanteenDashboard({super.key});
@@ -120,7 +121,6 @@ class CanteenDashboard extends StatelessWidget {
           crossAxisSpacing: 15,
           mainAxisSpacing: 15,
           children: [
-
             dashboardCard(
               context,
               "Upload Menu",
@@ -147,6 +147,13 @@ class CanteenDashboard extends StatelessWidget {
               "Food Waste",
               Icons.delete_outline,
               const WasteScreen(),
+            ),
+
+            dashboardCard(
+              context,
+              "Analytics",
+              Icons.analytics,
+              const AnalyticsScreen(),
             ),
           ],
         ),

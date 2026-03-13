@@ -101,9 +101,55 @@ def predict_demand(input_data: dict):
     # PREDICT
     # ---------------------------------------
 
-    prediction = model.predict(df)[0]
+    prediction = int(model.predict(df)[0])
 
-    return int(prediction)
+    # safety margin (10%)
+    suggested_preparation = int(prediction * 1.1)
+
+    expected_waste = suggested_preparation - prediction
+
+    return {
+        "predicted_demand": prediction,
+        "suggested_preparation": suggested_preparation,
+        "expected_waste": expected_waste
+    }
+
+
+# ==========================================
+# MENU OPTIMIZATION FUNCTION
+# ==========================================
+
+def menu_optimization():
+
+    df = pd.read_csv("models/food_demand_dataset.csv")
+
+    demand = df.groupby("food_item")["quantity_sold"].mean()
+
+    demand = demand.sort_values(ascending=False)
+
+    high_demand = demand.head(3)
+    low_demand = demand.tail(3)
+
+    return {
+        "high_demand_items": high_demand.to_dict(),
+        "low_demand_items": low_demand.to_dict()
+    }
+
+
+# ==========================================
+# REWARDS FUNCTION
+# ==========================================
+
+def get_rewards(points: int):
+
+    if points >= 500:
+        return "Free meal"
+    elif points >= 250:
+        return "10% discount"
+    elif points >= 100:
+        return "5% discount"
+    else:
+        return "No reward"
 
 
 # ==========================================
@@ -122,3 +168,13 @@ if __name__ == "__main__":
     result = predict_demand(sample)
 
     print("Predicted Demand:", result)
+
+    menu_result = menu_optimization()
+
+    print("Menu Optimization:", menu_result)
+
+    # Test rewards
+    test_points = [50, 100, 250, 500, 600]
+    for pts in test_points:
+        reward = get_rewards(pts)
+        print(f"Points: {pts} -> Reward: {reward}")

@@ -3,7 +3,8 @@ from pydantic import BaseModel
 import pandas as pd
 import subprocess
 
-from predict import predict_demand
+from predict import predict_demand, get_rewards
+from waste_analytics import waste_analysis
 
 app = FastAPI()
 
@@ -57,6 +58,40 @@ def predict(data: PredictionInput):
 
 
 # ==========================================
+# MENU OPTIMIZATION
+# ==========================================
+
+@app.get("/menu-optimization")
+def menu_analysis():
+
+    from predict import menu_optimization
+
+    return menu_optimization()
+
+# ==========================================
+# STUDENT ANALYTICS
+# ==========================================
+
+@app.get("/student-analytics")
+def analytics():
+
+    from student_analytics import student_behavior
+
+    return student_behavior()
+
+# ==========================================
+# GET REWARDS
+# ==========================================
+
+@app.get("/rewards/{points}")
+def get_user_rewards(points: int):
+
+    reward = get_rewards(points)
+
+    return {"points": points, "reward": reward}
+
+
+# ==========================================
 # GET DAILY FORECAST
 # ==========================================
 
@@ -66,6 +101,11 @@ def forecast():
     df = pd.read_csv("data/tomorrow_forecast.csv")
 
     return df.to_dict(orient="records")
+
+@app.get("/waste-analytics")
+def waste():
+
+    return waste_analysis()
 
 
 # ==========================================
