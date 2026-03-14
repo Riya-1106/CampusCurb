@@ -1,0 +1,22 @@
+[
+  {
+    "id": "1",
+    "name": "Veg Wrap",
+    "price": 80
+  },
+  {
+    "id": "2",
+    "name": "Masala Dosa",
+    "price": 50
+  },
+  {
+    "id": "3",
+    "name": "Cheese Pizza",
+    "price": 120
+  },
+  {
+    "id": "4",
+    "name": "Idli",
+    "price": 30
+  }
+]

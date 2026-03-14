@@ -7,6 +7,7 @@ import 'screens/auth/login_screen.dart';
 import 'screens/student/student_dashboard.dart';
 import 'screens/canteen/canteen_dashboard.dart';
 import 'screens/faculty/faculty_dashboard.dart';
+import 'screens/admin/admin_dashboard.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 void main() async {
@@ -64,19 +65,24 @@ class RoleBasedRouter extends StatelessWidget {
           .doc(user.uid)
           .get(),
       builder: (context, snapshot) {
-        if (!snapshot.hasData) {
-          return const Scaffold(
-            body: Center(child: CircularProgressIndicator()),
-          );
+        if (!snapshot.hasData || !snapshot.data!.exists) {
+          return const LoginScreen();
         }
 
-        final role = snapshot.data!['role'];
+        final data = snapshot.data!.data() as Map<String, dynamic>?;
+        if (data == null || !data.containsKey('role')) {
+          return const LoginScreen();
+        }
+
+        final role = data['role'];
 
         if (role == 'student') {
           return const StudentDashboard();
         } else if (role == 'canteen') {
           return const CanteenDashboard();
-        } else if (role == 'faculty' || role == 'admin' || role == 'college') {
+        } else if (role == 'admin') {
+          return const AdminDashboard();
+        } else if (role == 'faculty' || role == 'college') {
           return const FacultyDashboard();
         } else {
           return const LoginScreen();

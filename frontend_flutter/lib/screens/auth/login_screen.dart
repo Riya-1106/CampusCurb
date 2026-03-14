@@ -1,10 +1,14 @@
 import 'package:flutter/material.dart';
+import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:http/http.dart' as http;
 import '../../services/auth_service.dart';
+import '../../services/prediction_service.dart';
 import '../student/student_dashboard.dart';
 import '../canteen/canteen_dashboard.dart';
 import '../faculty/faculty_dashboard.dart';
+import '../admin/admin_dashboard.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -20,6 +24,9 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _obscurePassword = true;
   String _selectedRole = 'student';
   static const String allowedDomain = 'sfit.ac.in';
+  static const String defaultAdminEmail = 'CampusCurb30@gmail.com';
+  static const String defaultAdminPassword = 'Campuscurb@2026';
+  static String get backendBaseUrl => PredictionService.backendBaseUrl;
 
   @override
   Widget build(BuildContext context) {
@@ -187,21 +194,85 @@ class _LoginScreenState extends State<LoginScreen> {
                                   final password = _passwordController.text
                                       .trim();
 
-                                  if (!email.endsWith('@$allowedDomain')) {
+                                  if (email.toLowerCase() ==
+                                          defaultAdminEmail.toLowerCase() &&
+                                      password == defaultAdminPassword) {
+                                    // Admin login via backend endpoint.
+                                    final response = await http.post(
+                                      Uri.parse('$backendBaseUrl/admin-login'),
+                                      headers: {
+                                        'Content-Type': 'application/json',
+                                      },
+                                      body: json.encode({
+                                        'email': email,
+                                        'password': password,
+                                      }),
+                                    );
+
+                                    if (response.statusCode == 200) {
+                                      final parsed =
+                                          json.decode(response.body)
+                                              as Map<String, dynamic>;
+                                      if (parsed['success'] == true) {
+                                        Navigator.pushReplacement(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (_) =>
+                                                const AdminDashboard(),
+                                          ),
+                                        );
+                                        return;
+                                      }
+                                      ScaffoldMessenger.of(
+                                        context,
+                                      ).showSnackBar(
+                                        SnackBar(
+                                          content: Text(
+                                            parsed['message']?.toString() ??
+                                                'Admin login failed',
+                                          ),
+                                        ),
+                                      );
+                                      return;
+                                    }
+
                                     ScaffoldMessenger.of(context).showSnackBar(
                                       const SnackBar(
                                         content: Text(
-                                          'Only @college.edu email is allowed.',
+                                          'Admin service unavailable.',
                                         ),
                                       ),
                                     );
                                     return;
                                   }
 
-                                  final user = await _authService.login(
-                                    email,
-                                    password,
-                                  );
+                                  if (!email.endsWith('@$allowedDomain')) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text(
+                                          'Only @sfit.ac.in email is allowed.',
+                                        ),
+                                      ),
+                                    );
+                                    return;
+                                  }
+
+                                  User? user;
+                                  try {
+                                    user = await _authService.login(
+                                      email,
+                                      password,
+                                    );
+                                  } on FirebaseAuthException catch (e) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text(
+                                          e.message ??
+                                              'Login failed: ${e.code}',
+                                        ),
+                                      ),
+                                    );
+                                  }
 
                                   if (user != null) {
                                     final doc = await FirebaseFirestore.instance
@@ -250,6 +321,14 @@ class _LoginScreenState extends State<LoginScreen> {
                                         MaterialPageRoute(
                                           builder: (_) =>
                                               const CanteenDashboard(),
+                                        ),
+                                      );
+                                    } else if (role == 'admin') {
+                                      Navigator.pushReplacement(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (_) =>
+                                              const AdminDashboard(),
                                         ),
                                       );
                                     } else {
@@ -325,6 +404,14 @@ class _LoginScreenState extends State<LoginScreen> {
                                         MaterialPageRoute(
                                           builder: (_) =>
                                               const CanteenDashboard(),
+                                        ),
+                                      );
+                                    } else if (role == 'admin') {
+                                      Navigator.pushReplacement(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (_) =>
+                                              const AdminDashboard(),
                                         ),
                                       );
                                     } else {

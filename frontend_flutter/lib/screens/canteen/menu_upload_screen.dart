@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../services/campus_service.dart';
 
 class MenuUploadScreen extends StatefulWidget {
   const MenuUploadScreen({super.key});
@@ -12,6 +12,8 @@ class _MenuUploadScreenState extends State<MenuUploadScreen> {
   final TextEditingController nameController = TextEditingController();
   final TextEditingController priceController = TextEditingController();
 
+  final CampusService _service = CampusService();
+
   Future<void> addMenuItem() async {
     if (nameController.text.isEmpty || priceController.text.isEmpty) {
       ScaffoldMessenger.of(
@@ -20,19 +22,21 @@ class _MenuUploadScreenState extends State<MenuUploadScreen> {
       return;
     }
 
-    await FirebaseFirestore.instance.collection('menu').add({
-      "name": nameController.text,
-      "price": int.parse(priceController.text),
-      "available": true,
-      "createdAt": FieldValue.serverTimestamp(),
-    });
-
-    nameController.clear();
-    priceController.clear();
-
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text("Menu item added")));
+    try {
+      await _service.addMenuItem(
+        name: nameController.text,
+        price: int.parse(priceController.text),
+      );
+      nameController.clear();
+      priceController.clear();
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text("Menu item added")));
+    } catch (e) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Add failed: $e')));
+    }
   }
 
   @override

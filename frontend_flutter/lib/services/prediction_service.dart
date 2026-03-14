@@ -1,12 +1,17 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 class PredictionService {
-  /// Base URL for the backend API.
-  ///
-  /// When running in the Android emulator, use 10.0.2.2 to reach localhost.
-  static const String _baseUrl = "http://10.0.2.2:8000";
+  static String get _baseUrl {
+    if (kIsWeb) {
+      return 'http://localhost:8000';
+    }
+    return 'http://10.0.2.2:8000';
+  }
+
+  static String get backendBaseUrl => _baseUrl;
 
   /// Calls the backend /predict endpoint with a payload and returns the response.
   Future<Map<String, dynamic>> predictDemand(Map<String, dynamic> input) async {

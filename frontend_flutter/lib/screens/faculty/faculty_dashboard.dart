@@ -82,9 +82,10 @@ class FacultyDashboard extends StatelessWidget {
               if (value == "logout") {
                 await AuthService().logout();
 
-                Navigator.pushReplacement(
+                Navigator.pushAndRemoveUntil(
                   context,
                   MaterialPageRoute(builder: (context) => const LoginScreen()),
+                  (route) => false,
                 );
               }
             },

@@ -1,9 +1,16 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import '../../services/campus_service.dart';
 
-class AttendanceScreen extends StatelessWidget {
+class AttendanceScreen extends StatefulWidget {
   const AttendanceScreen({super.key});
+
+  @override
+  State<AttendanceScreen> createState() => _AttendanceScreenState();
+}
+
+class _AttendanceScreenState extends State<AttendanceScreen> {
+  final CampusService _service = CampusService();
 
   Future<void> markAttendance(BuildContext context) async {
     final user = FirebaseAuth.instance.currentUser;
@@ -11,39 +18,18 @@ class AttendanceScreen extends StatelessWidget {
 
     final now = DateTime.now();
     final today = "${now.year}-${now.month}-${now.day}";
+    final time = "${now.hour}:${now.minute}";
 
-    // Check if attendance already exists
-    final query = await FirebaseFirestore.instance
-        .collection('attendance')
-        .where('uid', isEqualTo: user.uid)
-        .where('date', isEqualTo: today)
-        .get();
-
-    await FirebaseFirestore.instance
-        .collection('users')
-        .doc(user.uid)
-        .update({
-      'points': FieldValue.increment(5)
-    });
-
-    if (query.docs.isNotEmpty) {
+    try {
+      await _service.markAttendance(uid: user.uid, date: today, time: time);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Attendance already marked today")),
+        const SnackBar(content: Text("Attendance marked successfully")),
       );
-      return;
+    } catch (e) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Attendance failed: $e')));
     }
-
-    // Mark attendance
-    await FirebaseFirestore.instance.collection('attendance').add({
-      'uid': user.uid,
-      'date': today,
-      'time': "${now.hour}:${now.minute}",
-      'points': 5,
-    });
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("Attendance marked successfully")),
-    );
   }
 
   @override

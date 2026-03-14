@@ -1,0 +1,18 @@
+[
+  {
+    "id": "m1",
+    "name": "Veg Wrap",
+    "price": 80,
+    "category": "sandwich",
+    "requestedBy": "canteen123",
+    "createdAt": "2026-03-14T08:00:00Z"
+  },
+  {
+    "id": "m2",
+    "name": "Masala Dosa",
+    "price": 50,
+    "category": "breakfast",
+    "requestedBy": "canteen123",
+    "createdAt": "2026-03-14T08:20:00Z"
+  }
+]
