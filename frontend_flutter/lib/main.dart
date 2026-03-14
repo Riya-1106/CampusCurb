@@ -76,8 +76,10 @@ class RoleBasedRouter extends StatelessWidget {
           return const StudentDashboard();
         } else if (role == 'canteen') {
           return const CanteenDashboard();
-        } else {
+        } else if (role == 'faculty' || role == 'admin' || role == 'college') {
           return const FacultyDashboard();
+        } else {
+          return const LoginScreen();
         }
       },
     );

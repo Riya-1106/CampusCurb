@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../../services/auth_service.dart';
-import 'register_screen.dart';
 import '../student/student_dashboard.dart';
 import '../canteen/canteen_dashboard.dart';
 import '../faculty/faculty_dashboard.dart';
@@ -18,6 +18,8 @@ class _LoginScreenState extends State<LoginScreen> {
   final _passwordController = TextEditingController();
   final AuthService _authService = AuthService();
   bool _obscurePassword = true;
+  String _selectedRole = 'student';
+  static const String allowedDomain = 'sfit.ac.in';
 
   @override
   Widget build(BuildContext context) {
@@ -118,7 +120,56 @@ class _LoginScreenState extends State<LoginScreen> {
                               ),
                             ),
 
-                            const SizedBox(height: 30),
+                            const SizedBox(height: 18),
+
+                            // ROLE SELECTION
+                            DropdownButtonFormField<String>(
+                              value: _selectedRole,
+                              decoration: const InputDecoration(
+                                labelText: 'Role',
+                                border: OutlineInputBorder(),
+                              ),
+                              onChanged: (value) {
+                                if (value != null) {
+                                  setState(() {
+                                    _selectedRole = value;
+                                  });
+                                }
+                              },
+                              items: const [
+                                DropdownMenuItem(
+                                  value: 'student',
+                                  child: Text('Student'),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'faculty',
+                                  child: Text('Faculty'),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'canteen',
+                                  child: Text('Canteen'),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'admin',
+                                  child: Text('Admin'),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'college',
+                                  child: Text('College'),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 16),
+
+                            const Text(
+                              'Account access is managed by the administrator.\nPlease contact admin if you do not have an account.',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: Colors.black54,
+                                fontSize: 13,
+                              ),
+                            ),
+                            const SizedBox(height: 20),
 
                             // LOGIN BUTTON
                             SizedBox(
@@ -132,9 +183,24 @@ class _LoginScreenState extends State<LoginScreen> {
                                   ),
                                 ),
                                 onPressed: () async {
+                                  final email = _emailController.text.trim();
+                                  final password = _passwordController.text
+                                      .trim();
+
+                                  if (!email.endsWith('@$allowedDomain')) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text(
+                                          'Only @college.edu email is allowed.',
+                                        ),
+                                      ),
+                                    );
+                                    return;
+                                  }
+
                                   final user = await _authService.login(
-                                    _emailController.text.trim(),
-                                    _passwordController.text.trim(),
+                                    email,
+                                    password,
                                   );
 
                                   if (user != null) {
@@ -143,7 +209,32 @@ class _LoginScreenState extends State<LoginScreen> {
                                         .doc(user.uid)
                                         .get();
 
+                                    if (!doc.exists) {
+                                      ScaffoldMessenger.of(
+                                        context,
+                                      ).showSnackBar(
+                                        const SnackBar(
+                                          content: Text(
+                                            'No account found. Contact admin.',
+                                          ),
+                                        ),
+                                      );
+                                      await _authService.logout();
+                                      return;
+                                    }
+
                                     final role = doc['role'];
+                                    if (role != _selectedRole) {
+                                      ScaffoldMessenger.of(
+                                        context,
+                                      ).showSnackBar(
+                                        SnackBar(
+                                          content: Text(
+                                            'Logged in role is $role. You selected $_selectedRole.',
+                                          ),
+                                        ),
+                                      );
+                                    }
 
                                     if (role == 'student') {
                                       Navigator.pushReplacement(
@@ -185,26 +276,81 @@ class _LoginScreenState extends State<LoginScreen> {
                               ),
                             ),
 
-                            const SizedBox(height: 18),
+                            const SizedBox(height: 16),
+                            SizedBox(
+                              width: double.infinity,
+                              height: 50,
+                              child: OutlinedButton.icon(
+                                icon: const Icon(Icons.login),
+                                label: const Text('Sign in with Google'),
+                                onPressed: () async {
+                                  try {
+                                    final user = await _authService
+                                        .signInWithGoogle(allowedDomain);
+                                    if (user == null) {
+                                      return;
+                                    }
 
-                            // NAVIGATE TO REGISTER
-                            GestureDetector(
-                              onTap: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (_) => const RegisterScreen(),
-                                  ),
-                                );
-                              },
-                              child: const Text(
-                                "Don't have an account? Register",
-                                style: TextStyle(
-                                  color: Color(0xFF4A90E2),
-                                  fontWeight: FontWeight.w500,
-                                ),
+                                    final doc = await FirebaseFirestore.instance
+                                        .collection('users')
+                                        .doc(user.uid)
+                                        .get();
+
+                                    if (!doc.exists) {
+                                      ScaffoldMessenger.of(
+                                        context,
+                                      ).showSnackBar(
+                                        const SnackBar(
+                                          content: Text(
+                                            'Your account is not provisioned. Contact admin.',
+                                          ),
+                                        ),
+                                      );
+                                      await _authService.logout();
+                                      return;
+                                    }
+
+                                    final role = doc['role'];
+                                    if (role == 'student') {
+                                      Navigator.pushReplacement(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (_) =>
+                                              const StudentDashboard(),
+                                        ),
+                                      );
+                                    } else if (role == 'canteen') {
+                                      Navigator.pushReplacement(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (_) =>
+                                              const CanteenDashboard(),
+                                        ),
+                                      );
+                                    } else {
+                                      Navigator.pushReplacement(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (_) =>
+                                              const FacultyDashboard(),
+                                        ),
+                                      );
+                                    }
+                                  } on FirebaseAuthException catch (e) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text(
+                                          e.message ?? 'Google sign-in failed.',
+                                        ),
+                                      ),
+                                    );
+                                  }
+                                },
                               ),
                             ),
+                            const SizedBox(height: 24),
+
+                            const SizedBox(height: 1),
                           ],
                         ),
                       ),
