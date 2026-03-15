@@ -7,6 +7,7 @@ import 'admin_waste_monitoring_screen.dart';
 import 'food_exchange_requests_screen.dart';
 import 'admin_analytics_screen.dart';
 import 'login_attempts_screen.dart';
+import '../shared/profile_screen.dart';
 
 class AdminDashboard extends StatelessWidget {
   const AdminDashboard({super.key});
@@ -86,6 +87,13 @@ class AdminDashboard extends StatelessWidget {
               child: Icon(Icons.person, size: 18),
             ),
             onSelected: (value) async {
+              if (value == 'profile') {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const ProfileScreen()),
+                );
+              }
+
               if (value == 'logout') {
                 final navigator = Navigator.of(context);
                 await AuthService().logout();
@@ -96,6 +104,16 @@ class AdminDashboard extends StatelessWidget {
               }
             },
             itemBuilder: (context) => [
+              const PopupMenuItem(
+                value: 'profile',
+                child: Row(
+                  children: [
+                    Icon(Icons.person),
+                    SizedBox(width: 10),
+                    Text('Profile'),
+                  ],
+                ),
+              ),
               const PopupMenuItem(
                 value: 'logout',
                 child: Row(

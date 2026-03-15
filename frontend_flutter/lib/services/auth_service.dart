@@ -5,6 +5,17 @@ import 'package:google_sign_in/google_sign_in.dart';
 class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
+  bool _isAllowedDomain(String email, String allowedDomain) {
+    final normalized = email.trim().toLowerCase();
+    final atIndex = normalized.lastIndexOf('@');
+    if (atIndex <= 0 || atIndex == normalized.length - 1) {
+      return false;
+    }
+    final host = normalized.substring(atIndex + 1);
+    final target = allowedDomain.trim().toLowerCase();
+    return host == target || host.endsWith('.$target');
+  }
+
   // Register (admin-managed accounts only; not used by normal users)
   Future<User?> register(String email, String password) async {
     final userCredential = await _auth.createUserWithEmailAndPassword(
@@ -24,7 +35,10 @@ class AuthService {
   }
 
   // Google sign in
-  Future<User?> signInWithGoogle(String allowedDomain) async {
+  Future<User?> signInWithGoogle(
+    String allowedDomain, {
+    bool enforceDomain = true,
+  }) async {
     UserCredential userCredential;
 
     if (kIsWeb) {
@@ -52,11 +66,12 @@ class AuthService {
 
     final email = user.email!;
 
-    if (!email.endsWith('@$allowedDomain')) {
+    if (enforceDomain && !_isAllowedDomain(email, allowedDomain)) {
       await logout();
       throw FirebaseAuthException(
         code: 'invalid-domain',
-        message: 'Only @$allowedDomain accounts are allowed.',
+        message:
+            'Only $allowedDomain accounts (including subdomains) are allowed.',
       );
     }
 

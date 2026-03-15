@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../../services/auth_service.dart';
 import '../../services/college_exchange_service.dart';
 import '../auth/college_access_screen.dart';
+import '../shared/profile_screen.dart';
 
 class CollegeDashboard extends StatefulWidget {
   const CollegeDashboard({super.key});
@@ -303,6 +304,15 @@ class _CollegeDashboardState extends State<CollegeDashboard> {
         backgroundColor: const Color(0xFF0D6E6E),
         actions: [
           IconButton(onPressed: _refresh, icon: const Icon(Icons.refresh)),
+          IconButton(
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const ProfileScreen()),
+              );
+            },
+            icon: const Icon(Icons.person_outline),
+          ),
           IconButton(
             onPressed: () async {
               await _authService.logout();

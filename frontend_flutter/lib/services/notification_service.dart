@@ -11,17 +11,22 @@ class NotificationService {
   static String get _baseUrl => ApiConfig.baseUrl;
 
   Future<void> initializeForSignedInUser() async {
-    await _firebaseMessaging.requestPermission();
-    final token = await _firebaseMessaging.getToken();
-    if (token != null) {
-      await _registerToken(token);
+    try {
+      await _firebaseMessaging.requestPermission();
+      final token = await _firebaseMessaging.getToken();
+      if (token != null) {
+        await _registerToken(token);
+      }
+
+      FirebaseMessaging.instance.onTokenRefresh.listen((newToken) async {
+        await _registerToken(newToken);
+      });
+
+      onMessage();
+    } catch (e) {
+      // Web dev may fail to register service worker; keep auth flow functional.
+      debugPrint('Skipping notification init: $e');
     }
-
-    FirebaseMessaging.instance.onTokenRefresh.listen((newToken) async {
-      await _registerToken(newToken);
-    });
-
-    onMessage();
   }
 
   void onMessage() {

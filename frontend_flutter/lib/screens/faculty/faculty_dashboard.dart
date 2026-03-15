@@ -3,6 +3,7 @@ import '../../services/auth_service.dart';
 import '../auth/login_screen.dart';
 import 'analytics_screen.dart';
 import 'pay_later_screen.dart';
+import '../shared/profile_screen.dart';
 
 class FacultyDashboard extends StatelessWidget {
   const FacultyDashboard({super.key});
@@ -80,6 +81,13 @@ class FacultyDashboard extends StatelessWidget {
               child: Icon(Icons.person, size: 18),
             ),
             onSelected: (value) async {
+              if (value == "profile") {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const ProfileScreen()),
+                );
+              }
+
               if (value == "logout") {
                 final navigator = Navigator.of(context);
                 await AuthService().logout();

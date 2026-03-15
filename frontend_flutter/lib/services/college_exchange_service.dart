@@ -13,6 +13,7 @@ class CollegeExchangeService {
     required String email,
     String phone = '',
     String notes = '',
+    List<String> allowedDomains = const [],
   }) async {
     final response = await http.post(
       Uri.parse('$_baseUrl/college/signup-request'),
@@ -23,6 +24,7 @@ class CollegeExchangeService {
         'email': email,
         'phone': phone,
         'notes': notes,
+        'allowed_domains': allowedDomains,
       }),
     );
 

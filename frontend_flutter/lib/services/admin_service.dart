@@ -81,6 +81,8 @@ class AdminService {
     required String role,
     String name = '',
     String department = '',
+    String collegeName = '',
+    List<String> collegeDomains = const [],
   }) async {
     final currentUser = FirebaseAuth.instance.currentUser;
     if (currentUser == null) {
@@ -100,6 +102,8 @@ class AdminService {
         'role': role,
         'name': name,
         'department': department,
+        'college_name': collegeName,
+        'college_domains': collegeDomains,
       }),
     );
 

@@ -1,5 +1,6 @@
-import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/material.dart';
+
 import '../../services/admin_service.dart';
 
 class UserManagementScreen extends StatefulWidget {
@@ -14,17 +15,46 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
   final _passwordController = TextEditingController();
   final _nameController = TextEditingController();
   final _departmentController = TextEditingController();
+  final _collegeNameController = TextEditingController();
+  final _collegeDomainsController = TextEditingController();
   final AdminService _adminService = AdminService();
+
   String _selectedRole = 'student';
   bool _isCreating = false;
+
+  bool get _isCollegeRole => _selectedRole == 'college';
+
+  bool get _showDepartmentField =>
+      _selectedRole == 'faculty' || _selectedRole == 'canteen';
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    _nameController.dispose();
+    _departmentController.dispose();
+    _collegeNameController.dispose();
+    _collegeDomainsController.dispose();
+    super.dispose();
+  }
 
   Future<void> _createUser() async {
     final email = _emailController.text.trim();
     final password = _passwordController.text.trim();
+    final collegeName = _collegeNameController.text.trim();
 
     if (email.isEmpty || password.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please provide email and password.')),
+      );
+      return;
+    }
+
+    if (_isCollegeRole && collegeName.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('College name is required for college role.'),
+        ),
       );
       return;
     }
@@ -34,19 +64,34 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
     });
 
     try {
+      final collegeDomains = _collegeDomainsController.text
+          .split(RegExp(r'[,\s]+'))
+          .map((d) => d.trim().toLowerCase().replaceFirst('@', ''))
+          .where((d) => d.isNotEmpty)
+          .toSet()
+          .toList();
+
       await _adminService.createManagedUser(
         email: email,
         password: password,
         role: _selectedRole,
         name: _nameController.text.trim(),
-        department: _departmentController.text.trim(),
+        department: _showDepartmentField
+            ? _departmentController.text.trim()
+            : '',
+        collegeName: _isCollegeRole ? collegeName : '',
+        collegeDomains: _isCollegeRole ? collegeDomains : const [],
       );
+
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Created $_selectedRole account for $email.')),
       );
+
       _nameController.clear();
       _departmentController.clear();
+      _collegeNameController.clear();
+      _collegeDomainsController.clear();
       _emailController.clear();
       _passwordController.clear();
     } catch (e) {
@@ -91,41 +136,8 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                     ),
                     const SizedBox(height: 4),
                     const Text(
-                      'Use this after reviewing a college signup request or when provisioning any campus role directly.',
+                      'Fields adapt by role. College-only fields appear only for college role.',
                       style: TextStyle(color: Colors.black54, fontSize: 12),
-                    ),
-                    const SizedBox(height: 8),
-                    TextField(
-                      controller: _nameController,
-                      decoration: const InputDecoration(
-                        labelText: 'Name (optional)',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    TextField(
-                      controller: _emailController,
-                      decoration: const InputDecoration(
-                        labelText: 'Email',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    TextField(
-                      controller: _departmentController,
-                      decoration: const InputDecoration(
-                        labelText: 'Department (optional)',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    TextField(
-                      controller: _passwordController,
-                      obscureText: true,
-                      decoration: const InputDecoration(
-                        labelText: 'Password',
-                        border: OutlineInputBorder(),
-                      ),
                     ),
                     const SizedBox(height: 8),
                     DropdownButtonFormField<String>(
@@ -135,11 +147,17 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                         border: OutlineInputBorder(),
                       ),
                       onChanged: (value) {
-                        if (value != null) {
-                          setState(() {
-                            _selectedRole = value;
-                          });
-                        }
+                        if (value == null) return;
+                        setState(() {
+                          _selectedRole = value;
+                          if (!_isCollegeRole) {
+                            _collegeNameController.clear();
+                            _collegeDomainsController.clear();
+                          }
+                          if (!_showDepartmentField) {
+                            _departmentController.clear();
+                          }
+                        });
                       },
                       items: const [
                         DropdownMenuItem(
@@ -160,6 +178,59 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                         ),
                         DropdownMenuItem(value: 'admin', child: Text('Admin')),
                       ],
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: _nameController,
+                      decoration: const InputDecoration(
+                        labelText: 'Name (optional)',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: _emailController,
+                      decoration: const InputDecoration(
+                        labelText: 'Email',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    if (_showDepartmentField) ...[
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: _departmentController,
+                        decoration: const InputDecoration(
+                          labelText: 'Department (optional)',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                    ],
+                    if (_isCollegeRole) ...[
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: _collegeNameController,
+                        decoration: const InputDecoration(
+                          labelText: 'College Name',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: _collegeDomainsController,
+                        decoration: const InputDecoration(
+                          labelText: 'College Domains (comma separated)',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: _passwordController,
+                      obscureText: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Password',
+                        border: OutlineInputBorder(),
+                      ),
                     ),
                     const SizedBox(height: 10),
                     ElevatedButton(
@@ -206,7 +277,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                       final role = data['role'] ?? 'unknown';
                       return Card(
                         child: ListTile(
-                          title: Text(email),
+                          title: Text(email.toString()),
                           subtitle: Text('Role: $role'),
                           trailing: IconButton(
                             icon: const Icon(

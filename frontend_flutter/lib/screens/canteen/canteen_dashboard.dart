@@ -6,6 +6,7 @@ import 'inventory_screen.dart';
 import 'prediction_screen.dart';
 import 'waste_screen.dart';
 import 'analytics_screen.dart';
+import '../shared/profile_screen.dart';
 
 class CanteenDashboard extends StatelessWidget {
   const CanteenDashboard({super.key});
@@ -83,6 +84,13 @@ class CanteenDashboard extends StatelessWidget {
               child: Icon(Icons.person, size: 18),
             ),
             onSelected: (value) async {
+              if (value == "profile") {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const ProfileScreen()),
+                );
+              }
+
               if (value == "logout") {
                 final navigator = Navigator.of(context);
                 await AuthService().logout();

@@ -1,0 +1,202 @@
+[
+  {
+    "timestamp": "2026-03-15T12:44:49.177993+00:00",
+    "email": "campuscurb30@gmail.com",
+    "method": "password",
+    "success": false,
+    "reason": "Blocked domain",
+    "selected_role": "admin",
+    "ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+  },
+  {
+    "timestamp": "2026-03-15T12:48:43.006931+00:00",
+    "email": "campuscurb30@gmail.com",
+    "method": "password",
+    "success": false,
+    "reason": "Blocked domain",
+    "selected_role": "admin",
+    "ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+  },
+  {
+    "timestamp": "2026-03-15T12:48:48.365786+00:00",
+    "email": "campuscurb30@gmail.com",
+    "method": "password",
+    "success": false,
+    "reason": "Blocked domain",
+    "selected_role": "admin",
+    "ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+  },
+  {
+    "timestamp": "2026-03-15T12:49:25.954830+00:00",
+    "email": "campuscurb30@gmail.com",
+    "method": "password",
+    "success": false,
+    "reason": "Blocked domain",
+    "selected_role": "admin",
+    "ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+  },
+  {
+    "timestamp": "2026-03-15T13:17:23.926086+00:00",
+    "email": "campuscurb30@gmail.com",
+    "method": "password",
+    "success": false,
+    "reason": "invalid-credential",
+    "selected_role": "admin",
+    "ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+  },
+  {
+    "timestamp": "2026-03-15T13:17:23.937087+00:00",
+    "email": "campuscurb30@gmail.com",
+    "method": "password",
+    "success": false,
+    "reason": "Unknown login failure",
+    "selected_role": "admin",
+    "ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+  },
+  {
+    "timestamp": "2026-03-15T13:20:52.955874+00:00",
+    "email": "campuscurb30@gmail.com",
+    "method": "password",
+    "success": false,
+    "reason": "invalid-credential",
+    "selected_role": "admin",
+    "ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+  },
+  {
+    "timestamp": "2026-03-15T13:20:52.975875+00:00",
+    "email": "campuscurb30@gmail.com",
+    "method": "password",
+    "success": false,
+    "reason": "Unknown login failure",
+    "selected_role": "admin",
+    "ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+  },
+  {
+    "timestamp": "2026-03-15T13:21:37.499338+00:00",
+    "email": "campuscurb30@gmail.com",
+    "method": "password",
+    "success": false,
+    "reason": "invalid-credential",
+    "selected_role": "admin",
+    "ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+  },
+  {
+    "timestamp": "2026-03-15T13:21:37.512343+00:00",
+    "email": "campuscurb30@gmail.com",
+    "method": "password",
+    "success": false,
+    "reason": "Unknown login failure",
+    "selected_role": "admin",
+    "ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+  },
+  {
+    "timestamp": "2026-03-15T13:24:27.275184+00:00",
+    "email": "campuscurb30@gmail.com",
+    "method": "password",
+    "success": true,
+    "reason": "Login success",
+    "selected_role": "admin",
+    "ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+  },
+  {
+    "timestamp": "2026-03-15T13:51:29.508577+00:00",
+    "email": "riyav1108@studnt.sfit.ac.in",
+    "method": "password",
+    "success": false,
+    "reason": "invalid-credential",
+    "selected_role": "student",
+    "ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+  },
+  {
+    "timestamp": "2026-03-15T13:51:29.515578+00:00",
+    "email": "riyav1108@studnt.sfit.ac.in",
+    "method": "password",
+    "success": false,
+    "reason": "Unknown login failure",
+    "selected_role": "student",
+    "ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+  },
+  {
+    "timestamp": "2026-03-15T13:51:38.645841+00:00",
+    "email": "riyav1108@student.sfit.ac.in",
+    "method": "password",
+    "success": false,
+    "reason": "invalid-credential",
+    "selected_role": "student",
+    "ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+  },
+  {
+    "timestamp": "2026-03-15T13:51:38.649840+00:00",
+    "email": "riyav1108@student.sfit.ac.in",
+    "method": "password",
+    "success": false,
+    "reason": "Unknown login failure",
+    "selected_role": "student",
+    "ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+  },
+  {
+    "timestamp": "2026-03-15T13:51:49.140470+00:00",
+    "email": "riyav1108@student.sfit.ac.in",
+    "method": "password",
+    "success": true,
+    "reason": "Login success",
+    "selected_role": "student",
+    "ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+  },
+  {
+    "timestamp": "2026-03-15T13:53:00.538119+00:00",
+    "email": "campuscurb30@gmail.com",
+    "method": "password",
+    "success": true,
+    "reason": "Login success",
+    "selected_role": "admin",
+    "ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+  },
+  {
+    "timestamp": "2026-03-15T14:04:44.626046+00:00",
+    "email": "campuscurb30@gmail.com",
+    "method": "password",
+    "success": true,
+    "reason": "Login success",
+    "selected_role": "admin",
+    "ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+  },
+  {
+    "timestamp": "2026-03-15T14:18:00.452641+00:00",
+    "email": "campuscurb30@gmail.com",
+    "method": "password",
+    "success": true,
+    "reason": "Login success",
+    "selected_role": "admin",
+    "ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+  },
+  {
+    "timestamp": "2026-03-15T14:20:00.538833+00:00",
+    "email": "riyav1108@student.sfit.ac.in",
+    "method": "password",
+    "success": true,
+    "reason": "Login success",
+    "selected_role": "student",
+    "ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+  }
+]

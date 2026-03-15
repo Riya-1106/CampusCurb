@@ -5,6 +5,7 @@ import 'menu_screen.dart';
 import 'attendance_screen.dart';
 import 'leaderboard_screen.dart';
 import 'rewards_screen.dart';
+import '../shared/profile_screen.dart';
 
 class StudentDashboard extends StatelessWidget {
   const StudentDashboard({super.key});
@@ -82,8 +83,9 @@ class StudentDashboard extends StatelessWidget {
             ),
             onSelected: (value) async {
               if (value == "profile") {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text("Profile page coming soon")),
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const ProfileScreen()),
                 );
               }
 

@@ -68,7 +68,10 @@ class RoleBasedRouter extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final user = FirebaseAuth.instance.currentUser!;
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      return const LoginScreen();
+    }
 
     return FutureBuilder<DocumentSnapshot>(
       future: FirebaseFirestore.instance

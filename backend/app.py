@@ -80,6 +80,67 @@ def _require_role_uid(authorization: Optional[str], allowed_roles: set[str]) -> 
 
     return uid, user_data
 
+
+def _normalize_domain(value: str) -> str:
+    domain = value.strip().lower()
+    if domain.startswith("@"):
+        domain = domain[1:]
+    if "/" in domain:
+        domain = domain.split("/", 1)[0]
+    return domain
+
+
+def _email_domain(email: str) -> str:
+    normalized = email.strip().lower()
+    if "@" not in normalized:
+        return ""
+    return _normalize_domain(normalized.rsplit("@", 1)[1])
+
+
+def _normalize_college_key(value: str) -> str:
+    cleaned = "".join(ch if ch.isalnum() else "-" for ch in value.strip().lower())
+    while "--" in cleaned:
+        cleaned = cleaned.replace("--", "-")
+    return cleaned.strip("-")
+
+
+def _build_college_key(college_name: str, email: str, domains: List[str]) -> str:
+    normalized_domains = [_normalize_domain(d) for d in domains if _normalize_domain(d)]
+    if normalized_domains:
+        return _normalize_college_key(normalized_domains[0])
+
+    email_domain = _email_domain(email)
+    if email_domain:
+        return _normalize_college_key(email_domain)
+
+    if college_name.strip():
+        return _normalize_college_key(college_name)
+
+    return ""
+
+
+def _resolve_user_college_key(uid: str, user_data: Dict) -> str:
+    raw_key = str(user_data.get("collegeKey", "")).strip()
+    if raw_key:
+        return _normalize_college_key(raw_key)
+
+    domains = user_data.get("collegeDomains") if isinstance(user_data.get("collegeDomains"), list) else []
+    if domains:
+        fallback = _normalize_domain(str(domains[0]))
+        if fallback:
+            return _normalize_college_key(fallback)
+
+    email = str(user_data.get("email", ""))
+    email_fallback = _email_domain(email)
+    if email_fallback:
+        return _normalize_college_key(email_fallback)
+
+    name_fallback = str(user_data.get("collegeName", "") or user_data.get("name", ""))
+    if name_fallback.strip():
+        return _normalize_college_key(name_fallback)
+
+    return uid
+
 # ==========================================
 # INPUT MODEL FOR PREDICTION
 # ==========================================
@@ -365,6 +426,8 @@ class AdminCreateUserInput(BaseModel):
     role: str
     name: str = ""
     department: str = ""
+    college_name: str = ""
+    college_domains: List[str] = []
 
 
 @app.post("/admin/create-user")
@@ -390,7 +453,25 @@ def admin_create_user(
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Unable to create user: {str(exc)}") from exc
 
-    db.collection("users").document(created_user.uid).set({
+    normalized_domains = []
+    for domain in payload.college_domains:
+        parsed = _normalize_domain(str(domain))
+        if parsed and parsed not in normalized_domains:
+            normalized_domains.append(parsed)
+
+    email_domain = _email_domain(email)
+    if role == "college" and email_domain and email_domain not in normalized_domains:
+        normalized_domains.append(email_domain)
+
+    college_name = payload.college_name.strip()
+    if role == "college" and not college_name:
+        college_name = payload.name.strip() or (email_domain or "College")
+
+    college_key = ""
+    if role in {"college", "student", "faculty", "canteen"}:
+        college_key = _build_college_key(college_name, email, normalized_domains)
+
+    user_doc = {
         "name": payload.name.strip(),
         "email": email,
         "role": role,
@@ -399,7 +480,16 @@ def admin_create_user(
         "createdAt": datetime.now(timezone.utc).isoformat(),
         "createdBy": admin_uid,
         "isActive": True,
-    }, merge=True)
+    }
+
+    if college_name:
+        user_doc["collegeName"] = college_name
+    if normalized_domains:
+        user_doc["collegeDomains"] = normalized_domains
+    if college_key:
+        user_doc["collegeKey"] = college_key
+
+    db.collection("users").document(created_user.uid).set(user_doc, merge=True)
 
     return {
         "message": "User created",
@@ -481,6 +571,7 @@ class CollegeSignupRequestInput(BaseModel):
     email: str
     phone: str = ""
     notes: str = ""
+    allowed_domains: List[str] = []
 
 
 class CollegeFoodListingInput(BaseModel):
@@ -524,6 +615,18 @@ def create_college_signup_request(payload: CollegeSignupRequestInput):
     if not email:
         raise HTTPException(status_code=400, detail="Email is required")
 
+    requested_domains = []
+    for domain in payload.allowed_domains:
+        parsed = _normalize_domain(str(domain))
+        if parsed and parsed not in requested_domains:
+            requested_domains.append(parsed)
+
+    email_domain = _email_domain(email)
+    if email_domain and email_domain not in requested_domains:
+        requested_domains.append(email_domain)
+
+    college_key = _build_college_key(payload.college_name, email, requested_domains)
+
     existing = list(
         db.collection("college_signup_requests")
         .where("email", "==", email)
@@ -539,6 +642,9 @@ def create_college_signup_request(payload: CollegeSignupRequestInput):
         "college_name": payload.college_name.strip(),
         "contact_name": payload.contact_name.strip(),
         "email": email,
+        "allowed_domains": requested_domains,
+        "primary_domain": requested_domains[0] if requested_domains else "",
+        "college_key": college_key,
         "phone": payload.phone.strip(),
         "notes": payload.notes.strip(),
         "status": "pending",
@@ -636,6 +742,7 @@ def create_college_food_listing(
     authorization: Optional[str] = Header(default=None),
 ):
     uid, user_data = _require_role_uid(authorization, {"college"})
+    college_key = _resolve_user_college_key(uid, user_data)
     if not payload.food_item.strip():
         raise HTTPException(status_code=400, detail="Food item is required")
     if payload.quantity <= 0:
@@ -644,6 +751,7 @@ def create_college_food_listing(
     listing_ref = db.collection("college_food_listings").document()
     listing_ref.set({
         "created_by": uid,
+        "college_key": college_key,
         "college_name": _user_display_name(user_data),
         "contact_email": user_data.get("email", ""),
         "food_item": payload.food_item.strip(),
@@ -660,19 +768,21 @@ def create_college_food_listing(
 
 @app.get("/college/listings/mine")
 def get_my_college_listings(authorization: Optional[str] = Header(default=None)):
-    uid, _ = _require_role_uid(authorization, {"college"})
-    docs = (
-        db.collection("college_food_listings")
-        .where("created_by", "==", uid)
-        .order_by("createdAt", direction="DESCENDING")
-        .stream()
-    )
-    return _serialize_docs(docs)
+    uid, user_data = _require_role_uid(authorization, {"college"})
+    college_key = _resolve_user_college_key(uid, user_data)
+    docs = db.collection("college_food_listings").order_by("createdAt", direction="DESCENDING").stream()
+    rows = []
+    for doc in docs:
+        data = doc.to_dict() or {}
+        if data.get("created_by") == uid or data.get("college_key") == college_key:
+            rows.append({"id": doc.id, **data})
+    return rows
 
 
 @app.get("/college/listings/available")
 def get_available_college_listings(authorization: Optional[str] = Header(default=None)):
-    uid, _ = _require_role_uid(authorization, {"college"})
+    uid, user_data = _require_role_uid(authorization, {"college"})
+    college_key = _resolve_user_college_key(uid, user_data)
     docs = (
         db.collection("college_food_listings")
         .where("status", "==", "approved")
@@ -683,6 +793,8 @@ def get_available_college_listings(authorization: Optional[str] = Header(default
     for doc in docs:
         data = doc.to_dict() or {}
         if data.get("created_by") == uid:
+            continue
+        if data.get("college_key") == college_key:
             continue
         if int(data.get("remaining_quantity", 0) or 0) <= 0:
             continue
@@ -696,6 +808,7 @@ def create_college_food_request(
     authorization: Optional[str] = Header(default=None),
 ):
     uid, user_data = _require_role_uid(authorization, {"college"})
+    to_college_key = _resolve_user_college_key(uid, user_data)
     if payload.quantity <= 0:
         raise HTTPException(status_code=400, detail="Quantity must be greater than zero")
 
@@ -707,6 +820,11 @@ def create_college_food_request(
     listing_data = listing_doc.to_dict() or {}
     if listing_data.get("created_by") == uid:
         raise HTTPException(status_code=400, detail="You cannot request your own listing")
+
+    from_college_key = str(listing_data.get("college_key", "")).strip()
+    if from_college_key and from_college_key == to_college_key:
+        raise HTTPException(status_code=400, detail="You cannot request your own college listing")
+
     if listing_data.get("status") != "approved":
         raise HTTPException(status_code=400, detail="Listing is not approved yet")
 
@@ -722,8 +840,10 @@ def create_college_food_request(
         "unit": listing_data.get("unit", "plates"),
         "college_from": listing_data.get("college_name", ""),
         "college_from_uid": listing_data.get("created_by", ""),
+        "college_from_key": from_college_key,
         "college_to": _user_display_name(user_data),
         "college_to_uid": uid,
+        "college_to_key": to_college_key,
         "notes": payload.notes.strip(),
         "status": "pending",
         "createdAt": datetime.now(timezone.utc).isoformat(),
@@ -733,12 +853,18 @@ def create_college_food_request(
 
 @app.get("/college/food-requests")
 def get_college_food_requests(authorization: Optional[str] = Header(default=None)):
-    uid, _ = _require_role_uid(authorization, {"college"})
+    uid, user_data = _require_role_uid(authorization, {"college"})
+    college_key = _resolve_user_college_key(uid, user_data)
     docs = db.collection("college_food_requests").order_by("createdAt", direction="DESCENDING").stream()
     rows = []
     for doc in docs:
         data = doc.to_dict() or {}
-        if data.get("college_to_uid") == uid or data.get("college_from_uid") == uid:
+        if (
+            data.get("college_to_uid") == uid
+            or data.get("college_from_uid") == uid
+            or data.get("college_to_key") == college_key
+            or data.get("college_from_key") == college_key
+        ):
             rows.append({"id": doc.id, **data})
     return rows
 

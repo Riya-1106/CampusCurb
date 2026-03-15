@@ -22,6 +22,7 @@ class _CollegeAccessScreenState extends State<CollegeAccessScreen>
   final _collegeNameController = TextEditingController();
   final _contactNameController = TextEditingController();
   final _signupEmailController = TextEditingController();
+  final _allowedDomainsController = TextEditingController();
   final _phoneController = TextEditingController();
   final _notesController = TextEditingController();
   final AuthService _authService = AuthService();
@@ -47,6 +48,7 @@ class _CollegeAccessScreenState extends State<CollegeAccessScreen>
     _collegeNameController.dispose();
     _contactNameController.dispose();
     _signupEmailController.dispose();
+    _allowedDomainsController.dispose();
     _phoneController.dispose();
     _notesController.dispose();
     super.dispose();
@@ -156,6 +158,12 @@ class _CollegeAccessScreenState extends State<CollegeAccessScreen>
     final collegeName = _collegeNameController.text.trim();
     final contactName = _contactNameController.text.trim();
     final email = _signupEmailController.text.trim().toLowerCase();
+    final allowedDomains = _allowedDomainsController.text
+        .split(RegExp(r'[,\s]+'))
+        .map((d) => d.trim().toLowerCase().replaceFirst('@', ''))
+        .where((d) => d.isNotEmpty)
+        .toSet()
+        .toList();
     if (collegeName.isEmpty || contactName.isEmpty || email.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -176,6 +184,7 @@ class _CollegeAccessScreenState extends State<CollegeAccessScreen>
         email: email,
         phone: _phoneController.text.trim(),
         notes: _notesController.text.trim(),
+        allowedDomains: allowedDomains,
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -186,6 +195,7 @@ class _CollegeAccessScreenState extends State<CollegeAccessScreen>
       _collegeNameController.clear();
       _contactNameController.clear();
       _signupEmailController.clear();
+      _allowedDomainsController.clear();
       _phoneController.clear();
       _notesController.clear();
     } catch (e) {
@@ -223,6 +233,9 @@ class _CollegeAccessScreenState extends State<CollegeAccessScreen>
 
   @override
   Widget build(BuildContext context) {
+    final viewportHeight = MediaQuery.sizeOf(context).height;
+    final tabHeight = viewportHeight < 700 ? 320.0 : 420.0;
+
     return Scaffold(
       backgroundColor: const Color(0xFFF3F7FB),
       appBar: AppBar(
@@ -230,148 +243,176 @@ class _CollegeAccessScreenState extends State<CollegeAccessScreen>
         backgroundColor: const Color(0xFF0D6E6E),
       ),
       body: SafeArea(
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 520),
-            child: Padding(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            return SingleChildScrollView(
               padding: const EdgeInsets.all(20),
-              child: Card(
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Align(
-                        alignment: Alignment.centerLeft,
-                        child: Text(
-                          'Separate access for partner colleges',
-                          style: TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.w800,
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxWidth: 520,
+                    minHeight: constraints.maxHeight - 40,
+                  ),
+                  child: Card(
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(20),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              'Separate access for partner colleges',
+                              style: TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
                           ),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      const Align(
-                        alignment: Alignment.centerLeft,
-                        child: Text(
-                          'College canteens sign up here, wait for admin review, then log in to post surplus food and request approved listings from other colleges.',
-                          style: TextStyle(color: Colors.black54),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      TabBar(
-                        controller: _tabController,
-                        tabs: const [
-                          Tab(text: 'Login'),
-                          Tab(text: 'Signup Request'),
+                          const SizedBox(height: 8),
+                          const Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              'College canteens sign up here, wait for admin review, then log in to post surplus food and request approved listings from other colleges.',
+                              style: TextStyle(color: Colors.black54),
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          TabBar(
+                            controller: _tabController,
+                            tabs: const [
+                              Tab(text: 'Login'),
+                              Tab(text: 'Signup Request'),
+                            ],
+                          ),
+                          const SizedBox(height: 16),
+                          SizedBox(
+                            height: tabHeight,
+                            child: TabBarView(
+                              controller: _tabController,
+                              children: [
+                                ListView(
+                                  children: [
+                                    _input(
+                                      _loginEmailController,
+                                      'College Email',
+                                    ),
+                                    const SizedBox(height: 12),
+                                    _input(
+                                      _loginPasswordController,
+                                      'Password',
+                                      obscure: _obscurePassword,
+                                      suffixIcon: IconButton(
+                                        icon: Icon(
+                                          _obscurePassword
+                                              ? Icons.visibility_off_outlined
+                                              : Icons.visibility_outlined,
+                                        ),
+                                        onPressed: () {
+                                          setState(() {
+                                            _obscurePassword =
+                                                !_obscurePassword;
+                                          });
+                                        },
+                                      ),
+                                    ),
+                                    const SizedBox(height: 16),
+                                    ElevatedButton(
+                                      onPressed: _isBusy ? null : _loginCollege,
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: const Color(
+                                          0xFF0D6E6E,
+                                        ),
+                                        foregroundColor: Colors.white,
+                                        minimumSize: const Size.fromHeight(50),
+                                      ),
+                                      child: _isBusy
+                                          ? const CircularProgressIndicator(
+                                              color: Colors.white,
+                                            )
+                                          : const Text(
+                                              'Login to College Portal',
+                                            ),
+                                    ),
+                                  ],
+                                ),
+                                ListView(
+                                  children: [
+                                    _input(
+                                      _collegeNameController,
+                                      'College Name',
+                                    ),
+                                    const SizedBox(height: 12),
+                                    _input(
+                                      _contactNameController,
+                                      'Contact Person',
+                                    ),
+                                    const SizedBox(height: 12),
+                                    _input(
+                                      _signupEmailController,
+                                      'Official Email',
+                                    ),
+                                    const SizedBox(height: 12),
+                                    _input(
+                                      _allowedDomainsController,
+                                      'Allowed Domains (comma separated)',
+                                    ),
+                                    const SizedBox(height: 12),
+                                    _input(
+                                      _phoneController,
+                                      'Phone (optional)',
+                                    ),
+                                    const SizedBox(height: 12),
+                                    _input(
+                                      _notesController,
+                                      'Notes for admin (optional)',
+                                      maxLines: 4,
+                                    ),
+                                    const SizedBox(height: 16),
+                                    ElevatedButton(
+                                      onPressed: _isBusy
+                                          ? null
+                                          : _submitSignupRequest,
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: const Color(
+                                          0xFF0D6E6E,
+                                        ),
+                                        foregroundColor: Colors.white,
+                                        minimumSize: const Size.fromHeight(50),
+                                      ),
+                                      child: _isBusy
+                                          ? const CircularProgressIndicator(
+                                              color: Colors.white,
+                                            )
+                                          : const Text('Send Signup Request'),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                          TextButton(
+                            onPressed: () {
+                              Navigator.pushReplacement(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => const LoginScreen(),
+                                ),
+                              );
+                            },
+                            child: const Text('Back to campus login'),
+                          ),
                         ],
                       ),
-                      const SizedBox(height: 16),
-                      SizedBox(
-                        height: 420,
-                        child: TabBarView(
-                          controller: _tabController,
-                          children: [
-                            ListView(
-                              children: [
-                                _input(_loginEmailController, 'College Email'),
-                                const SizedBox(height: 12),
-                                _input(
-                                  _loginPasswordController,
-                                  'Password',
-                                  obscure: _obscurePassword,
-                                  suffixIcon: IconButton(
-                                    icon: Icon(
-                                      _obscurePassword
-                                          ? Icons.visibility_off_outlined
-                                          : Icons.visibility_outlined,
-                                    ),
-                                    onPressed: () {
-                                      setState(() {
-                                        _obscurePassword = !_obscurePassword;
-                                      });
-                                    },
-                                  ),
-                                ),
-                                const SizedBox(height: 16),
-                                ElevatedButton(
-                                  onPressed: _isBusy ? null : _loginCollege,
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: const Color(0xFF0D6E6E),
-                                    foregroundColor: Colors.white,
-                                    minimumSize: const Size.fromHeight(50),
-                                  ),
-                                  child: _isBusy
-                                      ? const CircularProgressIndicator(
-                                          color: Colors.white,
-                                        )
-                                      : const Text('Login to College Portal'),
-                                ),
-                              ],
-                            ),
-                            ListView(
-                              children: [
-                                _input(_collegeNameController, 'College Name'),
-                                const SizedBox(height: 12),
-                                _input(
-                                  _contactNameController,
-                                  'Contact Person',
-                                ),
-                                const SizedBox(height: 12),
-                                _input(
-                                  _signupEmailController,
-                                  'Official Email',
-                                ),
-                                const SizedBox(height: 12),
-                                _input(_phoneController, 'Phone (optional)'),
-                                const SizedBox(height: 12),
-                                _input(
-                                  _notesController,
-                                  'Notes for admin (optional)',
-                                  maxLines: 4,
-                                ),
-                                const SizedBox(height: 16),
-                                ElevatedButton(
-                                  onPressed: _isBusy
-                                      ? null
-                                      : _submitSignupRequest,
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: const Color(0xFF0D6E6E),
-                                    foregroundColor: Colors.white,
-                                    minimumSize: const Size.fromHeight(50),
-                                  ),
-                                  child: _isBusy
-                                      ? const CircularProgressIndicator(
-                                          color: Colors.white,
-                                        )
-                                      : const Text('Send Signup Request'),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                      TextButton(
-                        onPressed: () {
-                          Navigator.pushReplacement(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => const LoginScreen(),
-                            ),
-                          );
-                        },
-                        child: const Text('Back to campus login'),
-                      ),
-                    ],
+                    ),
                   ),
                 ),
               ),
-            ),
-          ),
+            );
+          },
         ),
       ),
     );

@@ -24,6 +24,25 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _obscurePassword = true;
   String _selectedRole = 'student';
   static const String allowedDomain = 'sfit.ac.in';
+  static const Set<String> adminAllowedEmails = {'campuscurb30@gmail.com'};
+
+  bool _looksLikeEmail(String email) {
+    final normalized = email.trim().toLowerCase();
+    final atIndex = normalized.lastIndexOf('@');
+    if (atIndex <= 0 || atIndex >= normalized.length - 3) {
+      return false;
+    }
+    final host = normalized.substring(atIndex + 1);
+    return host.contains('.');
+  }
+
+  bool _isAllowedForSelectedRole(String email) {
+    final normalized = email.trim().toLowerCase();
+    if (_selectedRole == 'admin') {
+      return adminAllowedEmails.contains(normalized) || _looksLikeEmail(email);
+    }
+    return _looksLikeEmail(normalized);
+  }
 
   Future<void> _logAttempt({
     required String email,
@@ -248,7 +267,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                   final password = _passwordController.text
                                       .trim();
 
-                                  if (!email.endsWith('@$allowedDomain')) {
+                                  if (!_isAllowedForSelectedRole(email)) {
                                     await _logAttempt(
                                       email: email,
                                       method: 'password',
@@ -258,7 +277,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                     messenger.showSnackBar(
                                       const SnackBar(
                                         content: Text(
-                                          'Only @sfit.ac.in email is allowed.',
+                                          'Enter a valid email address.',
                                         ),
                                       ),
                                     );
@@ -375,7 +394,10 @@ class _LoginScreenState extends State<LoginScreen> {
                                       .trim();
                                   try {
                                     final user = await _authService
-                                        .signInWithGoogle(allowedDomain);
+                                        .signInWithGoogle(
+                                          allowedDomain,
+                                          enforceDomain: false,
+                                        );
                                     if (user == null) {
                                       await _logAttempt(
                                         email: inputEmail,
