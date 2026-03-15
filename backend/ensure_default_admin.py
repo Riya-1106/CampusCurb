@@ -10,6 +10,7 @@ Optional env overrides:
 """
 
 import os
+import re
 from datetime import datetime, timezone
 
 from firebase_admin import auth as firebase_auth
@@ -22,14 +23,33 @@ DEFAULT_ADMIN_PASSWORD = os.getenv("DEFAULT_ADMIN_PASSWORD", "Campuscurb@2026")
 DEFAULT_ADMIN_NAME = os.getenv("DEFAULT_ADMIN_NAME", "CampusCurb Admin")
 
 
+def _validate_strong_password(password: str) -> str | None:
+    if not password:
+        return "DEFAULT_ADMIN_PASSWORD cannot be empty"
+    if len(password) < 8:
+        return "DEFAULT_ADMIN_PASSWORD must be at least 8 characters"
+    if re.search(r"\s", password):
+        return "DEFAULT_ADMIN_PASSWORD cannot contain spaces"
+    if not re.search(r"[A-Z]", password):
+        return "DEFAULT_ADMIN_PASSWORD must include an uppercase letter"
+    if not re.search(r"[a-z]", password):
+        return "DEFAULT_ADMIN_PASSWORD must include a lowercase letter"
+    if not re.search(r"\d", password):
+        return "DEFAULT_ADMIN_PASSWORD must include a number"
+    if not re.search(r"[^A-Za-z0-9]", password):
+        return "DEFAULT_ADMIN_PASSWORD must include a special character"
+    return None
+
+
 def ensure_default_admin() -> None:
     email = DEFAULT_ADMIN_EMAIL.strip().lower()
     password = DEFAULT_ADMIN_PASSWORD
 
     if not email:
         raise ValueError("DEFAULT_ADMIN_EMAIL cannot be empty")
-    if len(password) < 6:
-        raise ValueError("DEFAULT_ADMIN_PASSWORD must be at least 6 characters")
+    password_error = _validate_strong_password(password)
+    if password_error:
+        raise ValueError(password_error)
 
     try:
         user = firebase_auth.get_user_by_email(email)

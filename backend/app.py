@@ -4,6 +4,8 @@ from pydantic import BaseModel
 import pandas as pd
 import subprocess
 import json
+import os
+import re
 from pathlib import Path
 from typing import List, Dict, Optional
 from datetime import datetime, timezone
@@ -140,6 +142,24 @@ def _resolve_user_college_key(uid: str, user_data: Dict) -> str:
         return _normalize_college_key(name_fallback)
 
     return uid
+
+
+def _validate_strong_password(password: str) -> Optional[str]:
+    if not password:
+        return "Password is required"
+    if len(password) < 8:
+        return "Password must be at least 8 characters"
+    if re.search(r"\s", password):
+        return "Password cannot contain spaces"
+    if not re.search(r"[A-Z]", password):
+        return "Password must contain at least one uppercase letter"
+    if not re.search(r"[a-z]", password):
+        return "Password must contain at least one lowercase letter"
+    if not re.search(r"\d", password):
+        return "Password must contain at least one number"
+    if not re.search(r"[^A-Za-z0-9]", password):
+        return "Password must contain at least one special character"
+    return None
 
 # ==========================================
 # INPUT MODEL FOR PREDICTION
@@ -445,8 +465,9 @@ def admin_create_user(
     email = payload.email.strip().lower()
     if not email:
         raise HTTPException(status_code=400, detail="Email is required")
-    if len(payload.password) < 6:
-        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    password_error = _validate_strong_password(payload.password)
+    if password_error:
+        raise HTTPException(status_code=400, detail=password_error)
 
     try:
         created_user = firebase_auth.create_user(email=email, password=payload.password)
@@ -682,12 +703,83 @@ def admin_exchange_status(
     signup_ref = db.collection("college_signup_requests").document(payload.id)
     signup_doc = signup_ref.get()
     if signup_doc.exists:
+        signup_data = signup_doc.to_dict() or {}
+        email = str(signup_data.get("email", "")).strip().lower()
+
+        if payload.status == "approved":
+            if not email:
+                raise HTTPException(status_code=400, detail="Signup request is missing email")
+
+            college_name = str(signup_data.get("college_name", "")).strip()
+            allowed_domains = signup_data.get("allowed_domains")
+            normalized_domains = []
+            if isinstance(allowed_domains, list):
+                for domain in allowed_domains:
+                    parsed = _normalize_domain(str(domain))
+                    if parsed and parsed not in normalized_domains:
+                        normalized_domains.append(parsed)
+            email_domain = _email_domain(email)
+            if email_domain and email_domain not in normalized_domains:
+                normalized_domains.append(email_domain)
+
+            college_key = _build_college_key(college_name, email, normalized_domains)
+            if not college_key:
+                college_key = _normalize_college_key(email_domain or "college")
+
+            default_password = os.getenv("COLLEGE_DEFAULT_PASSWORD", "College@123")
+            default_password_error = _validate_strong_password(default_password)
+            if default_password_error:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Invalid COLLEGE_DEFAULT_PASSWORD: {default_password_error}",
+                )
+            created_new_auth_user = False
+            auth_user = None
+            temporary_password = ""
+
+            try:
+                auth_user = firebase_auth.get_user_by_email(email)
+            except Exception:
+                try:
+                    auth_user = firebase_auth.create_user(email=email, password=default_password)
+                    created_new_auth_user = True
+                    temporary_password = default_password
+                except Exception as exc:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Unable to provision college auth account: {str(exc)}",
+                    ) from exc
+
+            db.collection("users").document(auth_user.uid).set(
+                {
+                    "name": signup_data.get("contact_name", "") or college_name,
+                    "email": email,
+                    "role": "college",
+                    "department": "",
+                    "collegeName": college_name,
+                    "collegeDomains": normalized_domains,
+                    "collegeKey": college_key,
+                    "points": 0,
+                    "createdAt": datetime.now(timezone.utc).isoformat(),
+                    "createdBy": admin_uid,
+                    "isActive": True,
+                    "provisionedFromSignupRequestId": payload.id,
+                },
+                merge=True,
+            )
+
         signup_ref.set({
             "status": payload.status,
             "reviewedAt": datetime.now(timezone.utc).isoformat(),
             "reviewedBy": admin_uid,
         }, merge=True)
-        return {"message": "Signup request updated", "id": payload.id, "status": payload.status}
+        response = {"message": "Signup request updated", "id": payload.id, "status": payload.status}
+        if payload.status == "approved":
+            response["provisioned_email"] = email
+            response["auth_user_created"] = created_new_auth_user
+            if temporary_password:
+                response["temporary_password"] = temporary_password
+        return response
 
     listing_ref = db.collection("college_food_listings").document(payload.id)
     listing_doc = listing_ref.get()

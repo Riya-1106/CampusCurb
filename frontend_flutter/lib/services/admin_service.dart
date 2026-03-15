@@ -55,7 +55,10 @@ class AdminService {
     return Map<String, dynamic>.from(json.decode(response.body));
   }
 
-  Future<void> updateExchangeStatus(String id, String status) async {
+  Future<Map<String, dynamic>> updateExchangeStatus(
+    String id,
+    String status,
+  ) async {
     final currentUser = FirebaseAuth.instance.currentUser;
     if (currentUser == null) {
       throw Exception('You must be logged in as admin.');
@@ -73,6 +76,7 @@ class AdminService {
     if (response.statusCode != 200) {
       throw Exception('Update status failed: ${response.body}');
     }
+    return Map<String, dynamic>.from(json.decode(response.body));
   }
 
   Future<void> createManagedUser({

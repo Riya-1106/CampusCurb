@@ -63,12 +63,22 @@ class _FoodExchangeRequestsScreenState
 
   Future<void> _updateStatus(String id, String status) async {
     try {
-      await _adminService.updateExchangeStatus(id, status);
+      final result = await _adminService.updateExchangeStatus(id, status);
       await _loadRequests();
       if (!mounted) return;
+      var message = 'Request $status';
+      final provisionedEmail = result['provisioned_email']?.toString() ?? '';
+      final temporaryPassword = result['temporary_password']?.toString() ?? '';
+      if (status == 'approved' && provisionedEmail.isNotEmpty) {
+        message = 'Approved: $provisionedEmail';
+        if (temporaryPassword.isNotEmpty) {
+          message =
+              '$message\nTemp password: $temporaryPassword\nAsk college to change password after first login.';
+        }
+      }
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('Request $status')));
+      ).showSnackBar(SnackBar(content: Text(message)));
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(

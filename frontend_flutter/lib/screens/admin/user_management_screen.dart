@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
 import '../../services/admin_service.dart';
+import '../../utils/password_validator.dart';
 
 class UserManagementScreen extends StatefulWidget {
   const UserManagementScreen({super.key});
@@ -56,6 +57,14 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
           content: Text('College name is required for college role.'),
         ),
       );
+      return;
+    }
+
+    final passwordValidation = PasswordValidator.validateForCreation(password);
+    if (passwordValidation != null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(passwordValidation)));
       return;
     }
 
@@ -231,6 +240,11 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                         labelText: 'Password',
                         border: OutlineInputBorder(),
                       ),
+                    ),
+                    const SizedBox(height: 6),
+                    const Text(
+                      PasswordValidator.strongPasswordHint,
+                      style: TextStyle(color: Colors.black54, fontSize: 12),
                     ),
                     const SizedBox(height: 10),
                     ElevatedButton(

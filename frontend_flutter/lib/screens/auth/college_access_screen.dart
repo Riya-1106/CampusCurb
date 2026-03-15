@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../services/auth_service.dart';
 import '../../services/college_exchange_service.dart';
 import '../../services/security_audit_service.dart';
+import '../../utils/password_validator.dart';
 import '../college/college_dashboard.dart';
 import 'login_screen.dart';
 
@@ -90,10 +91,18 @@ class _CollegeAccessScreenState extends State<CollegeAccessScreen>
   Future<void> _loginCollege() async {
     final email = _loginEmailController.text.trim().toLowerCase();
     final password = _loginPasswordController.text.trim();
-    if (email.isEmpty || password.isEmpty) {
+    if (email.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Enter email and password.')),
       );
+      return;
+    }
+
+    final passwordValidation = PasswordValidator.validateForLogin(password);
+    if (passwordValidation != null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(passwordValidation)));
       return;
     }
 
@@ -151,6 +160,68 @@ class _CollegeAccessScreenState extends State<CollegeAccessScreen>
           _isBusy = false;
         });
       }
+    }
+  }
+
+  Future<void> _forgotPassword() async {
+    final seedEmail = _loginEmailController.text.trim().toLowerCase();
+    final emailController = TextEditingController(text: seedEmail);
+
+    final enteredEmail = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Reset Password'),
+          content: TextField(
+            controller: emailController,
+            keyboardType: TextInputType.emailAddress,
+            decoration: const InputDecoration(
+              labelText: 'Registered College Email',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(dialogContext, emailController.text.trim());
+              },
+              child: const Text('Send Code'),
+            ),
+          ],
+        );
+      },
+    );
+
+    final email = (enteredEmail ?? '').trim().toLowerCase();
+    if (email.isEmpty || !email.contains('@')) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter a valid registered email.')),
+      );
+      return;
+    }
+
+    try {
+      await _authService.sendPasswordResetEmail(email);
+      await _logAttempt(email: email, success: true, reason: 'Reset code sent');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Password reset email sent. Use the code/link in your email to set a new password.',
+          ),
+        ),
+      );
+    } on FirebaseAuthException catch (e) {
+      await _logAttempt(email: email, success: false, reason: e.code);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.message ?? 'Failed to send reset email.')),
+      );
     }
   }
 
@@ -319,6 +390,14 @@ class _CollegeAccessScreenState extends State<CollegeAccessScreen>
                                         },
                                       ),
                                     ),
+                                    const SizedBox(height: 6),
+                                    const Text(
+                                      'Password must be at least 6 characters.',
+                                      style: TextStyle(
+                                        color: Colors.black54,
+                                        fontSize: 12,
+                                      ),
+                                    ),
                                     const SizedBox(height: 16),
                                     ElevatedButton(
                                       onPressed: _isBusy ? null : _loginCollege,
@@ -336,6 +415,13 @@ class _CollegeAccessScreenState extends State<CollegeAccessScreen>
                                           : const Text(
                                               'Login to College Portal',
                                             ),
+                                    ),
+                                    Align(
+                                      alignment: Alignment.centerRight,
+                                      child: TextButton(
+                                        onPressed: _forgotPassword,
+                                        child: const Text('Forgot password?'),
+                                      ),
                                     ),
                                   ],
                                 ),

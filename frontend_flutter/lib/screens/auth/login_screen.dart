@@ -7,6 +7,7 @@ import '../student/student_dashboard.dart';
 import '../canteen/canteen_dashboard.dart';
 import '../faculty/faculty_dashboard.dart';
 import '../admin/admin_dashboard.dart';
+import '../../utils/password_validator.dart';
 import 'college_access_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -100,6 +101,78 @@ class _LoginScreenState extends State<LoginScreen> {
       return null;
     }
     return role;
+  }
+
+  Future<void> _forgotPassword() async {
+    final seedEmail = _emailController.text.trim().toLowerCase();
+    final emailController = TextEditingController(text: seedEmail);
+
+    final enteredEmail = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Reset Password'),
+          content: TextField(
+            controller: emailController,
+            keyboardType: TextInputType.emailAddress,
+            decoration: const InputDecoration(
+              labelText: 'Registered Email',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(dialogContext, emailController.text.trim());
+              },
+              child: const Text('Send Code'),
+            ),
+          ],
+        );
+      },
+    );
+
+    final email = (enteredEmail ?? '').trim().toLowerCase();
+    if (email.isEmpty || !_looksLikeEmail(email)) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter a valid registered email.')),
+      );
+      return;
+    }
+
+    try {
+      await _authService.sendPasswordResetEmail(email);
+      await _logAttempt(
+        email: email,
+        method: 'password-reset',
+        success: true,
+        reason: 'Reset code sent',
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Password reset email sent. Use the code/link in your email to set a new password.',
+          ),
+        ),
+      );
+    } on FirebaseAuthException catch (e) {
+      await _logAttempt(
+        email: email,
+        method: 'password-reset',
+        success: false,
+        reason: e.code,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.message ?? 'Failed to send reset email.')),
+      );
+    }
   }
 
   @override
@@ -267,6 +340,19 @@ class _LoginScreenState extends State<LoginScreen> {
                                   final password = _passwordController.text
                                       .trim();
 
+                                  final passwordValidation =
+                                      PasswordValidator.validateForLogin(
+                                        password,
+                                      );
+                                  if (passwordValidation != null) {
+                                    messenger.showSnackBar(
+                                      SnackBar(
+                                        content: Text(passwordValidation),
+                                      ),
+                                    );
+                                    return;
+                                  }
+
                                   if (!_isAllowedForSelectedRole(email)) {
                                     await _logAttempt(
                                       email: email,
@@ -376,6 +462,14 @@ class _LoginScreenState extends State<LoginScreen> {
                                   "Login",
                                   style: TextStyle(fontSize: 16),
                                 ),
+                              ),
+                            ),
+
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: TextButton(
+                                onPressed: _forgotPassword,
+                                child: const Text('Forgot password?'),
                               ),
                             ),
 
