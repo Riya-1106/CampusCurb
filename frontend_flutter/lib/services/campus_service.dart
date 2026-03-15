@@ -1,12 +1,9 @@
 import 'dart:convert';
-import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'api_config.dart';
 
 class CampusService {
-  static String get baseUrl {
-    if (kIsWeb) return 'http://localhost:8000';
-    return 'http://10.0.2.2:8000';
-  }
+  static String get baseUrl => ApiConfig.baseUrl;
 
   Future<List<Map<String, dynamic>>> getMenu() async {
     final res = await http.get(Uri.parse('$baseUrl/menu'));
@@ -38,11 +35,15 @@ class CampusService {
     }
   }
 
-  Future<void> addMenuItem({required String name, required int price}) async {
+  Future<void> addMenuItem({
+    required String name,
+    required int price,
+    String category = 'general',
+  }) async {
     final res = await http.post(
       Uri.parse('$baseUrl/menu'),
       headers: {'Content-Type': 'application/json'},
-      body: json.encode({'name': name, 'price': price}),
+      body: json.encode({'name': name, 'price': price, 'category': category}),
     );
     if (res.statusCode != 200) {
       throw Exception('Add menu failed: ${res.body}');

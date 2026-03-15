@@ -1,14 +1,13 @@
 import 'package:flutter/material.dart';
-import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:http/http.dart' as http;
 import '../../services/auth_service.dart';
-import '../../services/prediction_service.dart';
+import '../../services/security_audit_service.dart';
 import '../student/student_dashboard.dart';
 import '../canteen/canteen_dashboard.dart';
 import '../faculty/faculty_dashboard.dart';
 import '../admin/admin_dashboard.dart';
+import 'college_access_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -21,12 +20,68 @@ class _LoginScreenState extends State<LoginScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final AuthService _authService = AuthService();
+  final SecurityAuditService _auditService = SecurityAuditService();
   bool _obscurePassword = true;
   String _selectedRole = 'student';
   static const String allowedDomain = 'sfit.ac.in';
-  static const String defaultAdminEmail = 'CampusCurb30@gmail.com';
-  static const String defaultAdminPassword = 'Campuscurb@2026';
-  static String get backendBaseUrl => PredictionService.backendBaseUrl;
+
+  Future<void> _logAttempt({
+    required String email,
+    required String method,
+    required bool success,
+    required String reason,
+  }) async {
+    await _auditService.logLoginAttempt(
+      email: email,
+      method: method,
+      success: success,
+      reason: reason,
+      selectedRole: _selectedRole,
+    );
+  }
+
+  Future<void> _routeByRole(String role) async {
+    if (role == 'student') {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const StudentDashboard()),
+      );
+    } else if (role == 'canteen') {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const CanteenDashboard()),
+      );
+    } else if (role == 'admin') {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const AdminDashboard()),
+      );
+    } else {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const FacultyDashboard()),
+      );
+    }
+  }
+
+  Future<String?> _validateProvisionedRole(User user) async {
+    final doc = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .get();
+
+    if (!doc.exists) {
+      return null;
+    }
+
+    final data = doc.data();
+    final role = data?['role']?.toString().toLowerCase();
+    final isActive = data?['isActive'];
+    if (isActive is bool && !isActive) {
+      return null;
+    }
+    return role;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -131,7 +186,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
                             // ROLE SELECTION
                             DropdownButtonFormField<String>(
-                              value: _selectedRole,
+                              initialValue: _selectedRole,
                               decoration: const InputDecoration(
                                 labelText: 'Role',
                                 border: OutlineInputBorder(),
@@ -160,10 +215,6 @@ class _LoginScreenState extends State<LoginScreen> {
                                   value: 'admin',
                                   child: Text('Admin'),
                                 ),
-                                DropdownMenuItem(
-                                  value: 'college',
-                                  child: Text('College'),
-                                ),
                               ],
                             ),
                             const SizedBox(height: 16),
@@ -190,64 +241,21 @@ class _LoginScreenState extends State<LoginScreen> {
                                   ),
                                 ),
                                 onPressed: () async {
+                                  final messenger = ScaffoldMessenger.of(
+                                    context,
+                                  );
                                   final email = _emailController.text.trim();
                                   final password = _passwordController.text
                                       .trim();
 
-                                  if (email.toLowerCase() ==
-                                          defaultAdminEmail.toLowerCase() &&
-                                      password == defaultAdminPassword) {
-                                    // Admin login via backend endpoint.
-                                    final response = await http.post(
-                                      Uri.parse('$backendBaseUrl/admin-login'),
-                                      headers: {
-                                        'Content-Type': 'application/json',
-                                      },
-                                      body: json.encode({
-                                        'email': email,
-                                        'password': password,
-                                      }),
-                                    );
-
-                                    if (response.statusCode == 200) {
-                                      final parsed =
-                                          json.decode(response.body)
-                                              as Map<String, dynamic>;
-                                      if (parsed['success'] == true) {
-                                        Navigator.pushReplacement(
-                                          context,
-                                          MaterialPageRoute(
-                                            builder: (_) =>
-                                                const AdminDashboard(),
-                                          ),
-                                        );
-                                        return;
-                                      }
-                                      ScaffoldMessenger.of(
-                                        context,
-                                      ).showSnackBar(
-                                        SnackBar(
-                                          content: Text(
-                                            parsed['message']?.toString() ??
-                                                'Admin login failed',
-                                          ),
-                                        ),
-                                      );
-                                      return;
-                                    }
-
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(
-                                        content: Text(
-                                          'Admin service unavailable.',
-                                        ),
-                                      ),
-                                    );
-                                    return;
-                                  }
-
                                   if (!email.endsWith('@$allowedDomain')) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
+                                    await _logAttempt(
+                                      email: email,
+                                      method: 'password',
+                                      success: false,
+                                      reason: 'Blocked domain',
+                                    );
+                                    messenger.showSnackBar(
                                       const SnackBar(
                                         content: Text(
                                           'Only @sfit.ac.in email is allowed.',
@@ -264,7 +272,13 @@ class _LoginScreenState extends State<LoginScreen> {
                                       password,
                                     );
                                   } on FirebaseAuthException catch (e) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
+                                    await _logAttempt(
+                                      email: email,
+                                      method: 'password',
+                                      success: false,
+                                      reason: e.code,
+                                    );
+                                    messenger.showSnackBar(
                                       SnackBar(
                                         content: Text(
                                           e.message ??
@@ -275,15 +289,19 @@ class _LoginScreenState extends State<LoginScreen> {
                                   }
 
                                   if (user != null) {
-                                    final doc = await FirebaseFirestore.instance
-                                        .collection('users')
-                                        .doc(user.uid)
-                                        .get();
+                                    final role = await _validateProvisionedRole(
+                                      user,
+                                    );
 
-                                    if (!doc.exists) {
-                                      ScaffoldMessenger.of(
-                                        context,
-                                      ).showSnackBar(
+                                    if (role == null) {
+                                      await _logAttempt(
+                                        email: email,
+                                        method: 'password',
+                                        success: false,
+                                        reason:
+                                            'Account not provisioned or disabled',
+                                      );
+                                      messenger.showSnackBar(
                                         const SnackBar(
                                           content: Text(
                                             'No account found. Contact admin.',
@@ -294,54 +312,41 @@ class _LoginScreenState extends State<LoginScreen> {
                                       return;
                                     }
 
-                                    final role = doc['role'];
                                     if (role != _selectedRole) {
-                                      ScaffoldMessenger.of(
-                                        context,
-                                      ).showSnackBar(
+                                      await _logAttempt(
+                                        email: email,
+                                        method: 'password',
+                                        success: false,
+                                        reason:
+                                            'Role mismatch. Actual: $role, selected: $_selectedRole',
+                                      );
+                                      await _authService.logout();
+                                      messenger.showSnackBar(
                                         SnackBar(
                                           content: Text(
-                                            'Logged in role is $role. You selected $_selectedRole.',
+                                            'Your account role is $role. Select the correct role to continue.',
                                           ),
                                         ),
                                       );
+                                      return;
                                     }
 
-                                    if (role == 'student') {
-                                      Navigator.pushReplacement(
-                                        context,
-                                        MaterialPageRoute(
-                                          builder: (_) =>
-                                              const StudentDashboard(),
-                                        ),
-                                      );
-                                    } else if (role == 'canteen') {
-                                      Navigator.pushReplacement(
-                                        context,
-                                        MaterialPageRoute(
-                                          builder: (_) =>
-                                              const CanteenDashboard(),
-                                        ),
-                                      );
-                                    } else if (role == 'admin') {
-                                      Navigator.pushReplacement(
-                                        context,
-                                        MaterialPageRoute(
-                                          builder: (_) =>
-                                              const AdminDashboard(),
-                                        ),
-                                      );
-                                    } else {
-                                      Navigator.pushReplacement(
-                                        context,
-                                        MaterialPageRoute(
-                                          builder: (_) =>
-                                              const FacultyDashboard(),
-                                        ),
-                                      );
-                                    }
+                                    await _logAttempt(
+                                      email: email,
+                                      method: 'password',
+                                      success: true,
+                                      reason: 'Login success',
+                                    );
+                                    if (!mounted) return;
+                                    await _routeByRole(role);
                                   } else {
-                                    ScaffoldMessenger.of(context).showSnackBar(
+                                    await _logAttempt(
+                                      email: email,
+                                      method: 'password',
+                                      success: false,
+                                      reason: 'Unknown login failure',
+                                    );
+                                    messenger.showSnackBar(
                                       const SnackBar(
                                         content: Text("Login failed"),
                                       ),
@@ -363,22 +368,38 @@ class _LoginScreenState extends State<LoginScreen> {
                                 icon: const Icon(Icons.login),
                                 label: const Text('Sign in with Google'),
                                 onPressed: () async {
+                                  final messenger = ScaffoldMessenger.of(
+                                    context,
+                                  );
+                                  final inputEmail = _emailController.text
+                                      .trim();
                                   try {
                                     final user = await _authService
                                         .signInWithGoogle(allowedDomain);
                                     if (user == null) {
+                                      await _logAttempt(
+                                        email: inputEmail,
+                                        method: 'google',
+                                        success: false,
+                                        reason: 'User cancelled Google sign-in',
+                                      );
                                       return;
                                     }
 
-                                    final doc = await FirebaseFirestore.instance
-                                        .collection('users')
-                                        .doc(user.uid)
-                                        .get();
+                                    final email = user.email ?? inputEmail;
+                                    final role = await _validateProvisionedRole(
+                                      user,
+                                    );
 
-                                    if (!doc.exists) {
-                                      ScaffoldMessenger.of(
-                                        context,
-                                      ).showSnackBar(
+                                    if (role == null) {
+                                      await _logAttempt(
+                                        email: email,
+                                        method: 'google',
+                                        success: false,
+                                        reason:
+                                            'Account not provisioned or disabled',
+                                      );
+                                      messenger.showSnackBar(
                                         const SnackBar(
                                           content: Text(
                                             'Your account is not provisioned. Contact admin.',
@@ -389,42 +410,41 @@ class _LoginScreenState extends State<LoginScreen> {
                                       return;
                                     }
 
-                                    final role = doc['role'];
-                                    if (role == 'student') {
-                                      Navigator.pushReplacement(
-                                        context,
-                                        MaterialPageRoute(
-                                          builder: (_) =>
-                                              const StudentDashboard(),
+                                    if (role != _selectedRole) {
+                                      await _logAttempt(
+                                        email: email,
+                                        method: 'google',
+                                        success: false,
+                                        reason:
+                                            'Role mismatch. Actual: $role, selected: $_selectedRole',
+                                      );
+                                      await _authService.logout();
+                                      messenger.showSnackBar(
+                                        SnackBar(
+                                          content: Text(
+                                            'Your account role is $role. Select the correct role to continue.',
+                                          ),
                                         ),
                                       );
-                                    } else if (role == 'canteen') {
-                                      Navigator.pushReplacement(
-                                        context,
-                                        MaterialPageRoute(
-                                          builder: (_) =>
-                                              const CanteenDashboard(),
-                                        ),
-                                      );
-                                    } else if (role == 'admin') {
-                                      Navigator.pushReplacement(
-                                        context,
-                                        MaterialPageRoute(
-                                          builder: (_) =>
-                                              const AdminDashboard(),
-                                        ),
-                                      );
-                                    } else {
-                                      Navigator.pushReplacement(
-                                        context,
-                                        MaterialPageRoute(
-                                          builder: (_) =>
-                                              const FacultyDashboard(),
-                                        ),
-                                      );
+                                      return;
                                     }
+
+                                    await _logAttempt(
+                                      email: email,
+                                      method: 'google',
+                                      success: true,
+                                      reason: 'Login success',
+                                    );
+                                    if (!mounted) return;
+                                    await _routeByRole(role);
                                   } on FirebaseAuthException catch (e) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
+                                    await _logAttempt(
+                                      email: inputEmail,
+                                      method: 'google',
+                                      success: false,
+                                      reason: e.code,
+                                    );
+                                    messenger.showSnackBar(
                                       SnackBar(
                                         content: Text(
                                           e.message ?? 'Google sign-in failed.',
@@ -436,8 +456,19 @@ class _LoginScreenState extends State<LoginScreen> {
                               ),
                             ),
                             const SizedBox(height: 24),
-
-                            const SizedBox(height: 1),
+                            TextButton(
+                              onPressed: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => const CollegeAccessScreen(),
+                                  ),
+                                );
+                              },
+                              child: const Text(
+                                'College login or signup request',
+                              ),
+                            ),
                           ],
                         ),
                       ),

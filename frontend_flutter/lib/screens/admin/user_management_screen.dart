@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import '../../services/firestore_service.dart';
-import '../../services/auth_service.dart';
+import '../../services/admin_service.dart';
 
 class UserManagementScreen extends StatefulWidget {
   const UserManagementScreen({super.key});
@@ -13,6 +12,9 @@ class UserManagementScreen extends StatefulWidget {
 class _UserManagementScreenState extends State<UserManagementScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _nameController = TextEditingController();
+  final _departmentController = TextEditingController();
+  final AdminService _adminService = AdminService();
   String _selectedRole = 'student';
   bool _isCreating = false;
 
@@ -32,27 +34,32 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
     });
 
     try {
-      final user = await AuthService().register(email, password);
-      if (user == null) throw Exception('Failed to create auth account.');
-      await FirestoreService().createUser(
-        uid: user.uid,
+      await _adminService.createManagedUser(
         email: email,
+        password: password,
         role: _selectedRole,
+        name: _nameController.text.trim(),
+        department: _departmentController.text.trim(),
       );
-      await AuthService().logout();
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Created $_selectedRole account for $email.')),
       );
+      _nameController.clear();
+      _departmentController.clear();
       _emailController.clear();
       _passwordController.clear();
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Create failed: ${e.toString()}')));
     } finally {
-      setState(() {
-        _isCreating = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isCreating = false;
+        });
+      }
     }
   }
 
@@ -79,14 +86,35 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     const Text(
-                      'Create Student/Faculty Account',
+                      'Create Managed Account',
                       style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'Use this after reviewing a college signup request or when provisioning any campus role directly.',
+                      style: TextStyle(color: Colors.black54, fontSize: 12),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: _nameController,
+                      decoration: const InputDecoration(
+                        labelText: 'Name (optional)',
+                        border: OutlineInputBorder(),
+                      ),
                     ),
                     const SizedBox(height: 8),
                     TextField(
                       controller: _emailController,
                       decoration: const InputDecoration(
                         labelText: 'Email',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: _departmentController,
+                      decoration: const InputDecoration(
+                        labelText: 'Department (optional)',
                         border: OutlineInputBorder(),
                       ),
                     ),
@@ -101,7 +129,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                     ),
                     const SizedBox(height: 8),
                     DropdownButtonFormField<String>(
-                      value: _selectedRole,
+                      initialValue: _selectedRole,
                       decoration: const InputDecoration(
                         labelText: 'Role',
                         border: OutlineInputBorder(),
@@ -122,6 +150,15 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                           value: 'faculty',
                           child: Text('Faculty'),
                         ),
+                        DropdownMenuItem(
+                          value: 'canteen',
+                          child: Text('Canteen'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'college',
+                          child: Text('College'),
+                        ),
+                        DropdownMenuItem(value: 'admin', child: Text('Admin')),
                       ],
                     ),
                     const SizedBox(height: 10),
@@ -178,6 +215,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                             ),
                             onPressed: () async {
                               await _deleteUser(doc.id);
+                              if (!context.mounted) return;
                               ScaffoldMessenger.of(context).showSnackBar(
                                 const SnackBar(
                                   content: Text('User record removed.'),

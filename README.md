@@ -289,3 +289,82 @@ Possible improvements include:
 The **ML‑Based Smart Canteen Management System** demonstrates how machine learning can be applied to real‑world problems such as food demand prediction and waste reduction.
 
 By combining **mobile technology, cloud databases, and machine learning**, the system provides an intelligent platform for managing canteen operations efficiently while promoting sustainability.
+
+---
+
+# Deployment Guide (Backend + APK)
+
+## Important for Mobile Deployment
+
+An Android `.apk` cannot reliably start and run your Python FastAPI backend inside the app process.
+
+For production, deploy backend separately and point Flutter app to that hosted URL.
+
+---
+
+## 1) Deploy Backend (FastAPI)
+
+You can host backend on Render, Railway, VM, or any server with Python.
+
+### Example commands on server
+
+```bash
+cd backend
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn app:app --host 0.0.0.0 --port 8000
+```
+
+### Production command (recommended)
+
+```bash
+gunicorn -k uvicorn.workers.UvicornWorker app:app --bind 0.0.0.0:8000
+```
+
+Make sure Firebase credentials and environment are correctly configured on the server.
+
+---
+
+## 2) Connect Flutter App to Hosted Backend
+
+The app now supports runtime backend URL via Dart define:
+
+- Define key: `BACKEND_BASE_URL`
+- Example value: `https://your-backend-domain.com`
+
+### Run on device/emulator
+
+```bash
+flutter run --dart-define=BACKEND_BASE_URL=https://your-backend-domain.com
+```
+
+### Build release APK
+
+```bash
+flutter build apk --release --dart-define=BACKEND_BASE_URL=https://your-backend-domain.com
+```
+
+Generated APK path:
+
+`build/app/outputs/flutter-apk/app-release.apk`
+
+---
+
+## 3) Install APK on Mobile
+
+1. Transfer `app-release.apk` to phone.
+2. Enable install from unknown sources (if needed).
+3. Install APK.
+4. Ensure phone has internet access to reach your hosted backend URL.
+
+---
+
+## 4) Local Development Shortcut
+
+For local emulator testing, default URL still works:
+
+- Android emulator: `http://10.0.2.2:8000`
+- Web: `http://localhost:8000`
+
+You can still override with `--dart-define` anytime.

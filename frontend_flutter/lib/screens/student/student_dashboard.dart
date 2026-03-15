@@ -88,10 +88,10 @@ class StudentDashboard extends StatelessWidget {
               }
 
               if (value == "logout") {
+                final navigator = Navigator.of(context);
                 await AuthService().logout();
 
-                Navigator.pushAndRemoveUntil(
-                  context,
+                navigator.pushAndRemoveUntil(
                   MaterialPageRoute(builder: (context) => const LoginScreen()),
                   (route) => false,
                 );

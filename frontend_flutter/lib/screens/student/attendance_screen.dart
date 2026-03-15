@@ -12,7 +12,7 @@ class AttendanceScreen extends StatefulWidget {
 class _AttendanceScreenState extends State<AttendanceScreen> {
   final CampusService _service = CampusService();
 
-  Future<void> markAttendance(BuildContext context) async {
+  Future<void> markAttendance() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
@@ -22,10 +22,12 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
 
     try {
       await _service.markAttendance(uid: user.uid, date: today, time: time);
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Attendance marked successfully")),
       );
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Attendance failed: $e')));
@@ -38,7 +40,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
       appBar: AppBar(title: const Text("Mark Attendance")),
       body: Center(
         child: ElevatedButton(
-          onPressed: () => markAttendance(context),
+          onPressed: markAttendance,
           style: ElevatedButton.styleFrom(
             padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 15),
           ),

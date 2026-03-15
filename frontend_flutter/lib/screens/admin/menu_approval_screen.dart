@@ -26,14 +26,17 @@ class _MenuApprovalScreenState extends State<MenuApprovalScreen> {
     try {
       _pendingItems = await _adminService.getMenuPending();
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Failed to load pending menu: $e')),
       );
       _pendingItems = [];
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -41,10 +44,12 @@ class _MenuApprovalScreenState extends State<MenuApprovalScreen> {
     try {
       await _adminService.approveMenuItem(id);
       await _loadPendingMenu();
+      if (!mounted) return;
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('Menu item approved.')));
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Approve failed: $e')));
@@ -55,10 +60,12 @@ class _MenuApprovalScreenState extends State<MenuApprovalScreen> {
     try {
       await _adminService.rejectMenuItem(id);
       await _loadPendingMenu();
+      if (!mounted) return;
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('Menu item rejected.')));
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Reject failed: $e')));

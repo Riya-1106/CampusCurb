@@ -1,4 +1,5 @@
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
 class AuthService {
@@ -24,31 +25,52 @@ class AuthService {
 
   // Google sign in
   Future<User?> signInWithGoogle(String allowedDomain) async {
-    final googleSignIn = GoogleSignIn.instance;
-    final googleUser = await googleSignIn.authenticate();
-    final email = googleUser.email;
+    UserCredential userCredential;
+
+    if (kIsWeb) {
+      final provider = GoogleAuthProvider();
+      userCredential = await _auth.signInWithPopup(provider);
+    } else {
+      final googleSignIn = GoogleSignIn.instance;
+      await googleSignIn.initialize();
+      final googleUser = await googleSignIn.authenticate();
+
+      final googleAuth = googleUser.authentication;
+      final credential = GoogleAuthProvider.credential(
+        idToken: googleAuth.idToken,
+      );
+      userCredential = await _auth.signInWithCredential(credential);
+    }
+
+    final user = userCredential.user;
+    if (user == null || user.email == null) {
+      throw FirebaseAuthException(
+        code: 'invalid-user',
+        message: 'Google sign-in did not return a valid user.',
+      );
+    }
+
+    final email = user.email!;
 
     if (!email.endsWith('@$allowedDomain')) {
-      await googleSignIn.signOut();
+      await logout();
       throw FirebaseAuthException(
         code: 'invalid-domain',
         message: 'Only @$allowedDomain accounts are allowed.',
       );
     }
 
-    final googleAuth = googleUser.authentication;
-    final credential = GoogleAuthProvider.credential(
-      idToken: googleAuth.idToken,
-    );
-
-    final userCredential = await _auth.signInWithCredential(credential);
-    return userCredential.user;
+    return user;
   }
 
   // Logout
   Future<void> logout() async {
     await _auth.signOut();
-    await GoogleSignIn.instance.signOut();
+    try {
+      await GoogleSignIn.instance.signOut();
+    } catch (_) {
+      // Ignore if Google session does not exist.
+    }
   }
 
   // Current user

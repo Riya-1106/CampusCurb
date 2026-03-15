@@ -1,5 +1,63 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import '../../services/prediction_service.dart';
+
+class _TrendLinePainter extends CustomPainter {
+  final List<double> points;
+  final Color color;
+
+  _TrendLinePainter({required this.points, required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (points.isEmpty) return;
+
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = 2.5
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+
+    final axis = Paint()
+      ..color = Colors.black12
+      ..strokeWidth = 1;
+
+    canvas.drawLine(
+      Offset(0, size.height - 1),
+      Offset(size.width, size.height - 1),
+      axis,
+    );
+
+    final maxValue = points.reduce(math.max).clamp(1.0, 100.0);
+    final minValue = points.reduce(math.min).clamp(0.0, 100.0);
+    final spread = (maxValue - minValue).abs() < 0.001
+        ? 1.0
+        : (maxValue - minValue);
+
+    final path = Path();
+    for (var i = 0; i < points.length; i++) {
+      final x = points.length == 1
+          ? size.width / 2
+          : (i / (points.length - 1)) * size.width;
+      final normalized = (points[i] - minValue) / spread;
+      final y = size.height - (normalized * (size.height - 6)) - 3;
+      if (i == 0) {
+        path.moveTo(x, y);
+      } else {
+        path.lineTo(x, y);
+      }
+      canvas.drawCircle(Offset(x, y), 2.5, Paint()..color = color);
+    }
+
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _TrendLinePainter oldDelegate) {
+    return oldDelegate.points != points || oldDelegate.color != color;
+  }
+}
 
 class AdminAnalyticsScreen extends StatefulWidget {
   const AdminAnalyticsScreen({super.key});
@@ -10,7 +68,8 @@ class AdminAnalyticsScreen extends StatefulWidget {
 
 class _AdminAnalyticsScreenState extends State<AdminAnalyticsScreen> {
   final PredictionService _service = PredictionService();
-  Map<String, dynamic>? data;
+  Map<String, dynamic>? studentData;
+  Map<String, dynamic>? predictionData;
   bool loading = true;
 
   @override
@@ -20,13 +79,22 @@ class _AdminAnalyticsScreenState extends State<AdminAnalyticsScreen> {
   }
 
   Future<void> fetchAnalytics() async {
+    setState(() {
+      loading = true;
+    });
     try {
-      final result = await _service.getStudentAnalytics();
+      final results = await Future.wait([
+        _service.getStudentAnalytics(),
+        _service.getPredictionAccuracy(),
+      ]);
+      if (!mounted) return;
       setState(() {
-        data = result;
+        studentData = results[0];
+        predictionData = results[1];
         loading = false;
       });
     } catch (_) {
+      if (!mounted) return;
       setState(() {
         loading = false;
       });
@@ -46,60 +114,445 @@ class _AdminAnalyticsScreenState extends State<AdminAnalyticsScreen> {
     );
   }
 
+  Widget sectionCard({required String title, required Widget child}) {
+    return Card(
+      elevation: 4,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 12),
+            child,
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget chipStat(String label, String value, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: color.withValues(alpha: 0.25)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+              color: color,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(label, style: const TextStyle(color: Colors.black54)),
+        ],
+      ),
+    );
+  }
+
+  Widget simpleList<T>({
+    required List<T> items,
+    required Widget Function(T item, int index) builder,
+    required String emptyText,
+  }) {
+    if (items.isEmpty) {
+      return Text(emptyText, style: const TextStyle(color: Colors.black54));
+    }
+
+    return Column(
+      children: List.generate(
+        items.length,
+        (index) => builder(items[index], index),
+      ),
+    );
+  }
+
+  double _toDouble(dynamic value) {
+    if (value is num) return value.toDouble();
+    return double.tryParse(value?.toString() ?? '') ?? 0;
+  }
+
+  Widget barChartList({
+    required List<Map<String, dynamic>> data,
+    required String title,
+    required String labelKey,
+    required String valueKey,
+    required Color color,
+    String emptyText = 'No chart data available.',
+  }) {
+    if (data.isEmpty) {
+      return Text(emptyText, style: const TextStyle(color: Colors.black54));
+    }
+
+    final maxValue = data
+        .map((e) => _toDouble(e[valueKey]))
+        .fold<double>(0, math.max)
+        .clamp(1, double.infinity);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
+        const SizedBox(height: 10),
+        ...data.map((item) {
+          final label = item[labelKey]?.toString() ?? 'N/A';
+          final value = _toDouble(item[valueKey]);
+          final factor = (value / maxValue).clamp(0.0, 1.0);
+
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
+                      child: Text(label, overflow: TextOverflow.ellipsis),
+                    ),
+                    Text(value.toStringAsFixed(value % 1 == 0 ? 0 : 1)),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: LinearProgressIndicator(
+                    minHeight: 10,
+                    value: factor,
+                    color: color,
+                    backgroundColor: color.withValues(alpha: 0.15),
+                  ),
+                ),
+              ],
+            ),
+          );
+        }),
+      ],
+    );
+  }
+
+  Widget ratioChart(Map<String, dynamic> vegRatio) {
+    final veg = _toDouble(vegRatio['veg_percentage']).clamp(0, 100);
+    final nonVeg = _toDouble(vegRatio['non_veg_percentage']).clamp(0, 100);
+    final sum = (veg + nonVeg) == 0 ? 1.0 : veg + nonVeg;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Veg vs Non-Veg Split',
+          style: TextStyle(fontWeight: FontWeight.w700),
+        ),
+        const SizedBox(height: 10),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: SizedBox(
+            height: 16,
+            child: Row(
+              children: [
+                Expanded(
+                  flex: ((veg / sum) * 1000).round(),
+                  child: Container(color: const Color(0xFF2E9F65)),
+                ),
+                Expanded(
+                  flex: ((nonVeg / sum) * 1000).round(),
+                  child: Container(color: const Color(0xFFB5482A)),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Veg: ${veg.toStringAsFixed(1)}% • Non-Veg: ${nonVeg.toStringAsFixed(1)}%',
+        ),
+      ],
+    );
+  }
+
+  Widget accuracyTrendChart(List<Map<String, dynamic>> logs) {
+    final points = logs
+        .map((e) => _toDouble(e['accuracy_percentage']))
+        .where((v) => v >= 0)
+        .toList();
+
+    if (points.isEmpty) {
+      return const Text(
+        'No trend data available.',
+        style: TextStyle(color: Colors.black54),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Prediction Accuracy Trend',
+          style: TextStyle(fontWeight: FontWeight.w700),
+        ),
+        const SizedBox(height: 10),
+        SizedBox(
+          height: 90,
+          width: double.infinity,
+          child: CustomPaint(
+            painter: _TrendLinePainter(
+              points: points.reversed.toList(),
+              color: const Color(0xFF2E6FD8),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final analytics = studentData;
+    final accuracy = predictionData;
+    final foodRankings = List<Map<String, dynamic>>.from(
+      (analytics?['food_rankings'] as List<dynamic>? ?? []).map(
+        (e) => Map<String, dynamic>.from(e as Map),
+      ),
+    );
+    final topStudents = List<Map<String, dynamic>>.from(
+      (analytics?['top_students_list'] as List<dynamic>? ?? []).map(
+        (e) => Map<String, dynamic>.from(e as Map),
+      ),
+    );
+    final recentLogs = List<Map<String, dynamic>>.from(
+      (accuracy?['recent_logs'] as List<dynamic>? ?? []).map(
+        (e) => Map<String, dynamic>.from(e as Map),
+      ),
+    );
+    final accuracyByFood = List<Map<String, dynamic>>.from(
+      (accuracy?['accuracy_by_food'] as List<dynamic>? ?? []).map(
+        (e) => Map<String, dynamic>.from(e as Map),
+      ),
+    );
+    final mostOrdered = Map<String, dynamic>.from(
+      analytics?['most_ordered_food'] as Map<String, dynamic>? ?? {},
+    );
+    final peakDetails = Map<String, dynamic>.from(
+      analytics?['peak_order_time_details'] as Map<String, dynamic>? ?? {},
+    );
+    final vegRatio = Map<String, dynamic>.from(
+      analytics?['veg_vs_non_veg_ratio'] as Map<String, dynamic>? ?? {},
+    );
+
     return Scaffold(
       appBar: AppBar(title: const Text('System Analytics')),
       body: loading
           ? const Center(child: CircularProgressIndicator())
-          : data == null
+          : analytics == null && accuracy == null
           ? const Center(child: Text('No analytics data available.'))
-          : Padding(
-              padding: const EdgeInsets.all(14),
-              child: Column(
+          : RefreshIndicator(
+              onRefresh: fetchAnalytics,
+              child: ListView(
+                padding: const EdgeInsets.all(14),
                 children: [
-                  Card(
-                    elevation: 4,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
+                  sectionCard(
+                    title: 'Student Behavior Analytics',
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Wrap(
+                          spacing: 10,
+                          runSpacing: 10,
+                          children: [
+                            chipStat(
+                              'Most Ordered Food',
+                              '${mostOrdered['name'] ?? 'N/A'} (${mostOrdered['orders'] ?? 0})',
+                              const Color(0xFF2E6FD8),
+                            ),
+                            chipStat(
+                              'Peak Ordering Time',
+                              '${peakDetails['slot'] ?? analytics?['peak_order_time'] ?? 'N/A'}',
+                              const Color(0xFF0F7A8B),
+                            ),
+                            chipStat(
+                              'Veg vs Non-Veg',
+                              '${vegRatio['display'] ?? analytics?['veg_preference'] ?? 'N/A'}',
+                              const Color(0xFF2E9F65),
+                            ),
+                            chipStat(
+                              'Total Orders',
+                              '${analytics?['total_orders'] ?? 0}',
+                              const Color(0xFFB5482A),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        dataRow(
+                          'Peak Slot Orders',
+                          '${peakDetails['orders'] ?? 0}',
+                        ),
+                        dataRow('Veg Orders', '${vegRatio['veg_count'] ?? 0}'),
+                        dataRow(
+                          'Non-Veg Orders',
+                          '${vegRatio['non_veg_count'] ?? 0}',
+                        ),
+                        const SizedBox(height: 16),
+                        const Text(
+                          'Most Ordered Food Ranking',
+                          style: TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                        const SizedBox(height: 12),
+                        simpleList<Map<String, dynamic>>(
+                          items: foodRankings,
+                          emptyText: 'No food ranking data available.',
+                          builder: (item, index) => ListTile(
+                            dense: true,
+                            contentPadding: EdgeInsets.zero,
+                            leading: CircleAvatar(
+                              radius: 14,
+                              child: Text('${index + 1}'),
+                            ),
+                            title: Text(item['name']?.toString() ?? 'Unknown'),
+                            trailing: Text('${item['count'] ?? 0} orders'),
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        barChartList(
+                          data: foodRankings,
+                          title: 'Food Orders Bar Chart',
+                          labelKey: 'name',
+                          valueKey: 'count',
+                          color: const Color(0xFF2E6FD8),
+                        ),
+                        const SizedBox(height: 16),
+                        const Text(
+                          'Top Students',
+                          style: TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                        const SizedBox(height: 12),
+                        simpleList<Map<String, dynamic>>(
+                          items: topStudents,
+                          emptyText: 'No student order ranking available.',
+                          builder: (item, index) => ListTile(
+                            dense: true,
+                            contentPadding: EdgeInsets.zero,
+                            leading: const Icon(Icons.person_outline),
+                            title: Text(
+                              item['student']?.toString() ?? 'Unknown student',
+                            ),
+                            trailing: Text('${item['orders'] ?? 0} orders'),
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        barChartList(
+                          data: topStudents,
+                          title: 'Top Students Bar Chart',
+                          labelKey: 'student',
+                          valueKey: 'orders',
+                          color: const Color(0xFF0F7A8B),
+                          emptyText: 'No top-student chart data available.',
+                        ),
+                        const SizedBox(height: 16),
+                        ratioChart(vegRatio),
+                      ],
                     ),
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Food Demand Analytics',
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
+                  ),
+                  const SizedBox(height: 12),
+                  sectionCard(
+                    title: 'Prediction Accuracy',
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Wrap(
+                          spacing: 10,
+                          runSpacing: 10,
+                          children: [
+                            chipStat(
+                              'Overall Accuracy',
+                              '${accuracy?['overall_accuracy_percentage'] ?? 0}%',
+                              const Color(0xFF2E6FD8),
+                            ),
+                            chipStat(
+                              'Prediction Logs',
+                              '${accuracy?['total_predictions'] ?? 0}',
+                              const Color(0xFFB5482A),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        const Text(
+                          'Recent Prediction Logs',
+                          style: TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                        const SizedBox(height: 12),
+                        simpleList<Map<String, dynamic>>(
+                          items: recentLogs,
+                          emptyText: 'No prediction logs available.',
+                          builder: (item, index) => Card(
+                            margin: const EdgeInsets.only(bottom: 8),
+                            child: ListTile(
+                              title: Text(
+                                item['food_item']?.toString() ?? 'Unknown',
+                              ),
+                              subtitle: Text(
+                                'Predicted: ${item['predicted_demand'] ?? 0} • Actual: ${item['actual_sold'] ?? 0}',
+                              ),
+                              trailing: Text(
+                                '${item['accuracy_percentage'] ?? 0}%',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
                             ),
                           ),
-                          const SizedBox(height: 8),
-                          dataRow(
-                            'Most Popular Food',
-                            data?['most_popular_food']?.keys.first.toString() ??
-                                'N/A',
+                        ),
+                        const SizedBox(height: 14),
+                        accuracyTrendChart(recentLogs),
+                        const SizedBox(height: 16),
+                        const Text(
+                          'Accuracy By Food',
+                          style: TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                        const SizedBox(height: 12),
+                        simpleList<Map<String, dynamic>>(
+                          items: accuracyByFood,
+                          emptyText: 'No food-wise accuracy data available.',
+                          builder: (item, index) => ListTile(
+                            dense: true,
+                            contentPadding: EdgeInsets.zero,
+                            title: Text(
+                              item['food_item']?.toString() ?? 'Unknown',
+                            ),
+                            subtitle: Text(
+                              'Predicted Avg: ${item['predicted_average'] ?? 0} • Actual Avg: ${item['actual_average'] ?? 0}',
+                            ),
+                            trailing: Text(
+                              '${item['accuracy_percentage'] ?? 0}%',
+                            ),
                           ),
-                          dataRow(
-                            'Peak Order Time',
-                            data?['peak_order_time']?.toString() ?? 'N/A',
-                          ),
-                          dataRow(
-                            'Total Orders',
-                            data?['total_orders']?.toString() ?? 'N/A',
-                          ),
-                          dataRow(
-                            'Veg Preference',
-                            data?['veg_preference']?.toString() ?? 'N/A',
-                          ),
-                          const SizedBox(height: 12),
-                          ElevatedButton(
-                            onPressed: fetchAnalytics,
-                            child: const Text('Refresh'),
-                          ),
-                        ],
-                      ),
+                        ),
+                        const SizedBox(height: 14),
+                        barChartList(
+                          data: accuracyByFood,
+                          title: 'Food-wise Accuracy Chart',
+                          labelKey: 'food_item',
+                          valueKey: 'accuracy_percentage',
+                          color: const Color(0xFF2E9F65),
+                          emptyText:
+                              'No food-wise accuracy chart data available.',
+                        ),
+                        const SizedBox(height: 8),
+                        ElevatedButton(
+                          onPressed: fetchAnalytics,
+                          child: const Text('Refresh'),
+                        ),
+                      ],
                     ),
                   ),
                 ],

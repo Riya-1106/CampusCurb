@@ -84,10 +84,10 @@ class CanteenDashboard extends StatelessWidget {
             ),
             onSelected: (value) async {
               if (value == "logout") {
+                final navigator = Navigator.of(context);
                 await AuthService().logout();
 
-                Navigator.pushAndRemoveUntil(
-                  context,
+                navigator.pushAndRemoveUntil(
                   MaterialPageRoute(builder: (context) => const LoginScreen()),
                   (route) => false,
                 );

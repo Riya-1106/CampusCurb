@@ -134,6 +134,12 @@ def predict_demand(input_data: dict):
     # for now simulate actual sales
     actual_sold = predicted_demand - 5
 
+    denominator = max(predicted_demand, actual_sold, 1)
+    accuracy_percentage = round(
+        (1 - abs(predicted_demand - actual_sold) / denominator) * 100,
+        2,
+    )
+
     log_prediction(
         food_item=input_data["food_item"],
         predicted_demand=predicted_demand,
@@ -146,6 +152,8 @@ def predict_demand(input_data: dict):
     return {
         "predicted_demand": predicted_demand,
         "suggested_preparation": suggested_preparation,
+        "actual_sold": actual_sold,
+        "accuracy_percentage": accuracy_percentage,
         "expected_waste": expected_waste
     }
 

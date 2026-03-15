@@ -4,15 +4,26 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'firebase_options.dart';
 
 import 'screens/auth/login_screen.dart';
+import 'screens/landing/landing_screen.dart';
 import 'screens/student/student_dashboard.dart';
 import 'screens/canteen/canteen_dashboard.dart';
+import 'screens/college/college_dashboard.dart';
 import 'screens/faculty/faculty_dashboard.dart';
 import 'screens/admin/admin_dashboard.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'services/notification_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+
+  final notificationService = NotificationService();
+  FirebaseAuth.instance.authStateChanges().listen((user) {
+    if (user != null) {
+      notificationService.initializeForSignedInUser();
+    }
+  });
+
   runApp(const MyApp());
 }
 
@@ -46,7 +57,7 @@ class AuthWrapper extends StatelessWidget {
           return const RoleBasedRouter();
         }
 
-        return const LoginScreen();
+        return const LandingScreen();
       },
     );
   }
@@ -82,8 +93,10 @@ class RoleBasedRouter extends StatelessWidget {
           return const CanteenDashboard();
         } else if (role == 'admin') {
           return const AdminDashboard();
-        } else if (role == 'faculty' || role == 'college') {
+        } else if (role == 'faculty') {
           return const FacultyDashboard();
+        } else if (role == 'college') {
+          return const CollegeDashboard();
         } else {
           return const LoginScreen();
         }

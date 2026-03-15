@@ -6,6 +6,7 @@ import 'user_management_screen.dart';
 import 'admin_waste_monitoring_screen.dart';
 import 'food_exchange_requests_screen.dart';
 import 'admin_analytics_screen.dart';
+import 'login_attempts_screen.dart';
 
 class AdminDashboard extends StatelessWidget {
   const AdminDashboard({super.key});
@@ -32,7 +33,10 @@ class AdminDashboard extends StatelessWidget {
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(20),
             gradient: LinearGradient(
-              colors: [color.withOpacity(0.1), color.withOpacity(0.2)],
+              colors: [
+                color.withValues(alpha: 0.1),
+                color.withValues(alpha: 0.2),
+              ],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
@@ -70,8 +74,9 @@ class AdminDashboard extends StatelessWidget {
           IconButton(
             icon: const Icon(Icons.notifications_none),
             onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('No new notifications yet')),
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const LoginAttemptsScreen()),
               );
             },
           ),
@@ -82,9 +87,9 @@ class AdminDashboard extends StatelessWidget {
             ),
             onSelected: (value) async {
               if (value == 'logout') {
+                final navigator = Navigator.of(context);
                 await AuthService().logout();
-                Navigator.pushAndRemoveUntil(
-                  context,
+                navigator.pushAndRemoveUntil(
                   MaterialPageRoute(builder: (context) => const LoginScreen()),
                   (route) => false,
                 );
@@ -184,7 +189,7 @@ class AdminDashboard extends StatelessWidget {
                     ),
                     dashboardCard(
                       context,
-                      'Food Exchange Requests',
+                      'College Exchange',
                       Icons.swap_horiz,
                       const FoodExchangeRequestsScreen(),
                       Colors.blue,
@@ -195,6 +200,13 @@ class AdminDashboard extends StatelessWidget {
                       Icons.delete_outline,
                       const AdminWasteMonitoringScreen(),
                       Colors.green,
+                    ),
+                    dashboardCard(
+                      context,
+                      'Login Security Logs',
+                      Icons.security,
+                      const LoginAttemptsScreen(),
+                      Colors.red,
                     ),
                   ],
                 ),

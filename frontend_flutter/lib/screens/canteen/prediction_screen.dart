@@ -14,6 +14,42 @@ class _PredictionScreenState extends State<PredictionScreen> {
   Map<String, dynamic>? data;
   bool loading = true;
 
+  int _toInt(dynamic value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse(value?.toString() ?? '') ?? 0;
+  }
+
+  double _toDouble(dynamic value) {
+    if (value is double) return value;
+    if (value is num) return value.toDouble();
+    return double.tryParse(value?.toString() ?? '') ?? 0;
+  }
+
+  Widget _metricRow(String label, String value, {Color? color}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: const TextStyle(fontSize: 14, color: Colors.black54),
+            ),
+          ),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+              color: color ?? Colors.black87,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   void initState() {
     super.initState();
@@ -144,109 +180,77 @@ class _PredictionScreenState extends State<PredictionScreen> {
 
                     const SizedBox(height: 20),
 
-                    // 🔷 DEMAND TABLE
+                    // 🔷 ML RESULT CARDS
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 20),
-                      child: Card(
-                        elevation: 8,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Padding(
-                          padding: const EdgeInsets.all(20),
-                          child: Column(
-                            children: [
-                              const Text(
-                                "Food Item Demand Forecast",
-                                style: TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
+                      child: Column(
+                        children: [
+                          const Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              "Food Item Demand Forecast",
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          ...?data?["dashboard"]?.map<Widget>((item) {
+                            final foodItem =
+                                item["food_item"]?.toString() ?? "Unknown";
+                            final predicted = _toInt(item["predicted_demand"]);
+                            final suggested = _toInt(
+                              item["suggested_preparation"],
+                            );
+                            final actual = _toInt(item["actual_sold"]);
+                            final accuracy = _toDouble(
+                              item["accuracy_percentage"],
+                            );
+
+                            return Card(
+                              elevation: 6,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              margin: const EdgeInsets.only(bottom: 12),
+                              child: Padding(
+                                padding: const EdgeInsets.all(16),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      foodItem,
+                                      style: const TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    _metricRow(
+                                      'Predicted Demand',
+                                      predicted.toString(),
+                                    ),
+                                    _metricRow(
+                                      'Suggested Preparation',
+                                      suggested.toString(),
+                                      color: Colors.green.shade700,
+                                    ),
+                                    _metricRow(
+                                      'Actual Sales',
+                                      actual.toString(),
+                                    ),
+                                    _metricRow(
+                                      'Prediction Accuracy',
+                                      '${accuracy.toStringAsFixed(1)}%',
+                                      color: Colors.blue.shade700,
+                                    ),
+                                  ],
                                 ),
                               ),
-                              const SizedBox(height: 20),
-                              const Row(
-                                mainAxisAlignment:
-                                    MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Expanded(
-                                    child: Text(
-                                      "Food Item",
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 16,
-                                      ),
-                                    ),
-                                  ),
-                                  Expanded(
-                                    child: Text(
-                                      "Predicted Demand",
-                                      textAlign: TextAlign.center,
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 16,
-                                      ),
-                                    ),
-                                  ),
-                                  Expanded(
-                                    child: Text(
-                                      "Suggested Preparation",
-                                      textAlign: TextAlign.center,
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 16,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const Divider(),
-                              ...?data?["dashboard"]?.map<Widget>((item) {
-                                return Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    vertical: 8,
-                                  ),
-                                  child: Row(
-                                    mainAxisAlignment:
-                                        MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      Expanded(
-                                        child: Text(
-                                          item["food_item"] ?? "Unknown",
-                                          style: const TextStyle(fontSize: 16),
-                                        ),
-                                      ),
-                                      Expanded(
-                                        child: Text(
-                                          item["predicted_demand"]
-                                                  ?.toString() ??
-                                              "0",
-                                          textAlign: TextAlign.center,
-                                          style: const TextStyle(
-                                            fontSize: 16,
-                                            fontWeight: FontWeight.w500,
-                                          ),
-                                        ),
-                                      ),
-                                      Expanded(
-                                        child: Text(
-                                          item["suggested_preparation"]
-                                                  ?.toString() ??
-                                              "0",
-                                          textAlign: TextAlign.center,
-                                          style: const TextStyle(
-                                            fontSize: 16,
-                                            fontWeight: FontWeight.w500,
-                                            color: Colors.green,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                );
-                              }).toList(),
-                            ],
-                          ),
-                        ),
+                            );
+                          }).toList(),
+                        ],
                       ),
                     ),
 

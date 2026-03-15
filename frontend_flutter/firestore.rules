@@ -1,0 +1,160 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userDocExists() {
+      return signedIn() &&
+          exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function userRoleIs(role) {
+      return userDocExists() &&
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == role &&
+          (!('isActive' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data) ||
+              get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isActive == true);
+    }
+
+    function isAdmin() {
+      return userRoleIs('admin');
+    }
+
+    function isCanteen() {
+      return userRoleIs('canteen');
+    }
+
+    function isCollege() {
+      return userRoleIs('college');
+    }
+
+    function isFacultyUser() {
+      return userRoleIs('faculty');
+    }
+
+    function isValidPendingStatus(status) {
+      return status == 'pending' || status == 'rejected' || status == 'approved';
+    }
+
+    // User profiles: admin controlled, users can read own profile.
+    match /users/{uid} {
+      allow get: if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow list: if signedIn();
+      allow create, update, delete: if isAdmin();
+    }
+
+    // Canteen submits pending menu; admin reviews/updates.
+    match /menu_pending/{itemId} {
+      allow get, list: if isAdmin() || isCanteen();
+
+      allow create: if isCanteen() &&
+          request.resource.data.name is string &&
+          request.resource.data.name.size() > 0 &&
+          request.resource.data.price is int &&
+          request.resource.data.price >= 0 &&
+          request.resource.data.category is string &&
+          request.resource.data.category.size() > 0 &&
+          request.resource.data.status == 'pending' &&
+          request.resource.data.approved == false;
+
+      // Only admin can mark approved/rejected or remove pending documents.
+      allow update, delete: if isAdmin() &&
+          (request.resource == null ||
+              (request.resource.data.status is string &&
+                  isValidPendingStatus(request.resource.data.status)));
+    }
+
+    // Approved menu shown to campus users; only admin can publish/change.
+    match /menu/{itemId} {
+      allow get, list: if signedIn() && resource.data.approved == true;
+
+      allow create, update: if isAdmin() &&
+          request.resource.data.name is string &&
+          request.resource.data.name.size() > 0 &&
+          request.resource.data.price is int &&
+          request.resource.data.price >= 0 &&
+          request.resource.data.category is string &&
+          request.resource.data.category.size() > 0 &&
+          request.resource.data.approved == true;
+
+      allow delete: if isAdmin();
+    }
+
+    // Faculty pay-later records.
+    match /faculty_orders/{orderId} {
+      allow get, list: if isAdmin() ||
+          (isFacultyUser() && resource.data.faculty_id == request.auth.uid);
+
+      allow create: if (isAdmin() || isFacultyUser()) &&
+          request.resource.data.faculty_id is string &&
+          request.resource.data.faculty_id == request.auth.uid &&
+          request.resource.data.items is list &&
+          request.resource.data.total_amount is int &&
+          request.resource.data.total_amount >= 0 &&
+          request.resource.data.payment_status == 'pending' &&
+          request.resource.data.date is string;
+
+      allow update: if isAdmin() ||
+          (isFacultyUser() &&
+              resource.data.faculty_id == request.auth.uid &&
+              request.resource.data.faculty_id == resource.data.faculty_id &&
+              request.resource.data.payment_status in ['pending', 'paid']);
+
+      allow delete: if isAdmin();
+    }
+
+    match /college_signup_requests/{requestId} {
+      allow create: if request.resource.data.college_name is string &&
+          request.resource.data.college_name.size() > 0 &&
+          request.resource.data.contact_name is string &&
+          request.resource.data.contact_name.size() > 0 &&
+          request.resource.data.email is string &&
+          request.resource.data.email.size() > 0 &&
+          request.resource.data.status == 'pending';
+
+      allow get, list, update, delete: if isAdmin();
+    }
+
+    match /college_food_listings/{listingId} {
+      allow create: if isCollege() &&
+          request.resource.data.created_by == request.auth.uid &&
+          request.resource.data.college_name is string &&
+          request.resource.data.food_item is string &&
+          request.resource.data.food_item.size() > 0 &&
+          request.resource.data.quantity is int &&
+          request.resource.data.quantity > 0 &&
+          request.resource.data.remaining_quantity is int &&
+          request.resource.data.remaining_quantity == request.resource.data.quantity &&
+          request.resource.data.status == 'pending';
+
+      allow get, list: if isAdmin() ||
+          (isCollege() &&
+              (resource.data.created_by == request.auth.uid ||
+                  resource.data.status == 'approved'));
+
+      allow update, delete: if isAdmin();
+    }
+
+    match /college_food_requests/{requestId} {
+      allow create: if isCollege() &&
+          request.resource.data.college_to_uid == request.auth.uid &&
+          request.resource.data.quantity is int &&
+          request.resource.data.quantity > 0 &&
+          request.resource.data.status == 'pending';
+
+      allow get, list: if isAdmin() ||
+          (isCollege() &&
+              (resource.data.college_to_uid == request.auth.uid ||
+                  resource.data.college_from_uid == request.auth.uid));
+
+      allow update, delete: if isAdmin();
+    }
+
+    // Deny everything else by default.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

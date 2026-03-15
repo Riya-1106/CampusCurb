@@ -27,18 +27,21 @@ class _MenuScreenState extends State<MenuScreen> {
     try {
       _menu = await _service.getMenu();
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Load menu failed: $e')));
       _menu = [];
     } finally {
-      setState(() {
-        _loading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _loading = false;
+        });
+      }
     }
   }
 
-  Future<void> placeOrder(BuildContext context, String item, int price) async {
+  Future<void> placeOrder(String item, int price) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
     try {
@@ -48,10 +51,12 @@ class _MenuScreenState extends State<MenuScreen> {
         price: price,
         quantity: 1,
       );
+      if (!mounted) return;
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text("$item ordered successfully")));
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Order failed: $e')));
@@ -82,7 +87,7 @@ class _MenuScreenState extends State<MenuScreen> {
                     trailing: ElevatedButton(
                       onPressed: itemPrice > 0
                           ? () {
-                              placeOrder(context, itemName, itemPrice);
+                              placeOrder(itemName, itemPrice);
                             }
                           : null,
                       child: const Text("Order"),

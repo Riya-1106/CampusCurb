@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../services/auth_service.dart';
 import '../auth/login_screen.dart';
 import 'analytics_screen.dart';
+import 'pay_later_screen.dart';
 
 class FacultyDashboard extends StatelessWidget {
   const FacultyDashboard({super.key});
@@ -80,10 +81,10 @@ class FacultyDashboard extends StatelessWidget {
             ),
             onSelected: (value) async {
               if (value == "logout") {
+                final navigator = Navigator.of(context);
                 await AuthService().logout();
 
-                Navigator.pushAndRemoveUntil(
-                  context,
+                navigator.pushAndRemoveUntil(
                   MaterialPageRoute(builder: (context) => const LoginScreen()),
                   (route) => false,
                 );
@@ -179,42 +180,11 @@ class FacultyDashboard extends StatelessWidget {
                       const AnalyticsScreen(),
                     ),
 
-                    // Placeholder cards for future features
-                    Card(
-                      elevation: 8,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Container(
-                        padding: const EdgeInsets.all(20),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(20),
-                          gradient: LinearGradient(
-                            colors: [
-                              Colors.grey.shade100,
-                              Colors.grey.shade200,
-                            ],
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                          ),
-                        ),
-                        child: const Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.schedule, size: 40, color: Colors.grey),
-                            SizedBox(height: 10),
-                            Text(
-                              "Coming Soon",
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.grey,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
+                    dashboardCard(
+                      context,
+                      "Pay Later",
+                      Icons.account_balance_wallet,
+                      const PayLaterScreen(),
                     ),
 
                     Card(
