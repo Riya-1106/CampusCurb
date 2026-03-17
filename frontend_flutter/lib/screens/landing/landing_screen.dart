@@ -37,7 +37,8 @@ class _LandingScreenState extends State<LandingScreen> {
   void _startImageRotation() {
     _imageRotationTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
       setState(() {
-        _currentImageIndex = (_currentImageIndex + 1) % _backgroundImages.length;
+        _currentImageIndex =
+            (_currentImageIndex + 1) % _backgroundImages.length;
       });
     });
   }
@@ -105,7 +106,11 @@ class _LandingScreenState extends State<LandingScreen> {
                 const SizedBox(height: 4),
                 Text(
                   subtitle,
-                  style: const TextStyle(fontSize: 12.5, color: Colors.black54),
+                  style: const TextStyle(
+                    fontSize: 12.5,
+                    color: Colors.black87,
+                    height: 1.3,
+                  ),
                 ),
               ],
             ),
@@ -119,20 +124,23 @@ class _LandingScreenState extends State<LandingScreen> {
     return AnimatedSwitcher(
       duration: const Duration(milliseconds: 1000),
       transitionBuilder: (Widget child, Animation<double> animation) {
-        return FadeTransition(
-          opacity: animation,
-          child: child,
-        );
+        return FadeTransition(opacity: animation, child: child);
       },
       child: Image.network(
         imageUrl,
         key: ValueKey<String>(imageUrl),
         fit: BoxFit.cover,
+        filterQuality: FilterQuality.medium,
+        gaplessPlayback: true,
         errorBuilder: (context, error, stackTrace) {
           return Container(
             decoration: const BoxDecoration(
               gradient: LinearGradient(
-                colors: [Color(0xFF1B5E8F), Color(0xFF1D9A8A), Color(0xFF0E3B59)],
+                colors: [
+                  Color(0xFF1B5E8F),
+                  Color(0xFF1D9A8A),
+                  Color(0xFF0E3B59),
+                ],
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),
@@ -154,8 +162,6 @@ class _LandingScreenState extends State<LandingScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final isWide = MediaQuery.sizeOf(context).width >= 760;
-
     return Scaffold(
       body: Stack(
         children: [
@@ -191,257 +197,285 @@ class _LandingScreenState extends State<LandingScreen> {
                   ),
                 );
               },
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(18, 14, 18, 20),
-                child: Center(
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 980),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'CampusCurb',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: isWide ? 52 : 38,
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: 0.8,
-                            height: 1.0,
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        ConstrainedBox(
-                          constraints: const BoxConstraints(maxWidth: 640),
-                          child: const Text(
-                            'Smart campus food operations powered by demand forecasting, waste intelligence, and role-based control.',
-                            style: TextStyle(
-                              color: Color(0xFFE5F4FF),
-                              fontSize: 16,
-                              height: 1.45,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        Wrap(
-                          spacing: 10,
-                          runSpacing: 10,
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final width = constraints.maxWidth;
+                  final isWide = width >= 760;
+                  final showSidePreview = width >= 920;
+                  final horizontalPadding = isWide ? 24.0 : 18.0;
+
+                  return SingleChildScrollView(
+                    physics: const BouncingScrollPhysics(),
+                    padding: EdgeInsets.fromLTRB(
+                      horizontalPadding,
+                      14,
+                      horizontalPadding,
+                      20,
+                    ),
+                    child: Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 980),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            _featurePill(
-                              Icons.psychology_alt_outlined,
-                              'Demand Forecasting',
+                            Text(
+                              'CampusCurb',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: isWide ? 52 : 38,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: 0.8,
+                                height: 1.0,
+                              ),
                             ),
-                            _featurePill(
-                              Icons.auto_graph_outlined,
-                              'Live Analytics',
+                            const SizedBox(height: 10),
+                            ConstrainedBox(
+                              constraints: const BoxConstraints(maxWidth: 640),
+                              child: const Text(
+                                'Smart campus food operations powered by demand forecasting, waste intelligence, and role-based control.',
+                                style: TextStyle(
+                                  color: Color(0xFFE5F4FF),
+                                  fontSize: 16,
+                                  height: 1.45,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
                             ),
-                            _featurePill(
-                              Icons.delete_sweep_outlined,
-                              'Waste Reduction',
+                            const SizedBox(height: 16),
+                            Wrap(
+                              spacing: 10,
+                              runSpacing: 10,
+                              children: [
+                                _featurePill(
+                                  Icons.psychology_alt_outlined,
+                                  'Demand Forecasting',
+                                ),
+                                _featurePill(
+                                  Icons.auto_graph_outlined,
+                                  'Live Analytics',
+                                ),
+                                _featurePill(
+                                  Icons.delete_sweep_outlined,
+                                  'Waste Reduction',
+                                ),
+                                _featurePill(
+                                  Icons.verified_user_outlined,
+                                  'Admin Managed Access',
+                                ),
+                              ],
                             ),
-                            _featurePill(
-                              Icons.verified_user_outlined,
-                              'Admin Managed Access',
+                            const SizedBox(height: 18),
+                            Container(
+                              padding: const EdgeInsets.all(16),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.14),
+                                borderRadius: BorderRadius.circular(20),
+                                border: Border.all(
+                                  color: Colors.white.withValues(alpha: 0.25),
+                                ),
+                              ),
+                              child: showSidePreview
+                                  ? Row(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              const Text(
+                                                'Role-Based Platform',
+                                                style: TextStyle(
+                                                  color: Colors.white,
+                                                  fontSize: 18,
+                                                  fontWeight: FontWeight.w800,
+                                                  letterSpacing: 0.3,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 10),
+                                              _roleTile(
+                                                icon: Icons.school_outlined,
+                                                title: 'Student',
+                                                subtitle:
+                                                    'Browse menu, mark attendance, and earn rewards.',
+                                                color: const Color(0xFF1C6FE9),
+                                              ),
+                                              const SizedBox(height: 8),
+                                              _roleTile(
+                                                icon: Icons.storefront_outlined,
+                                                title: 'Canteen',
+                                                subtitle:
+                                                    'Manage menu and use data to reduce over-prep.',
+                                                color: const Color(0xFF1F9362),
+                                              ),
+                                              const SizedBox(height: 8),
+                                              _roleTile(
+                                                icon: Icons.badge_outlined,
+                                                title: 'Faculty + Admin',
+                                                subtitle:
+                                                    'Track operations, monitor security, and provision users.',
+                                                color: const Color(0xFF9654E8),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        const SizedBox(width: 14),
+                                        ClipRRect(
+                                          borderRadius: BorderRadius.circular(
+                                            16,
+                                          ),
+                                          child: SizedBox(
+                                            width: 220,
+                                            height: 270,
+                                            child: Stack(
+                                              fit: StackFit.expand,
+                                              children: [
+                                                _networkBackground(
+                                                  _backgroundImages[(_currentImageIndex +
+                                                          1) %
+                                                      _backgroundImages.length],
+                                                ),
+                                                Container(
+                                                  color: Colors.black
+                                                      .withValues(alpha: 0.32),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    )
+                                  : Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        const Text(
+                                          'Role-Based Platform',
+                                          style: TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 18,
+                                            fontWeight: FontWeight.w800,
+                                            letterSpacing: 0.3,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 10),
+                                        _roleTile(
+                                          icon: Icons.school_outlined,
+                                          title: 'Student',
+                                          subtitle:
+                                              'Browse menu, mark attendance, and earn rewards.',
+                                          color: const Color(0xFF1C6FE9),
+                                        ),
+                                        const SizedBox(height: 8),
+                                        _roleTile(
+                                          icon: Icons.storefront_outlined,
+                                          title: 'Canteen',
+                                          subtitle:
+                                              'Manage menu and use data to reduce over-prep.',
+                                          color: const Color(0xFF1F9362),
+                                        ),
+                                        const SizedBox(height: 8),
+                                        _roleTile(
+                                          icon: Icons.badge_outlined,
+                                          title: 'Faculty + Admin',
+                                          subtitle:
+                                              'Track operations, monitor security, and provision users.',
+                                          color: const Color(0xFF9654E8),
+                                        ),
+                                      ],
+                                    ),
+                            ),
+                            const SizedBox(height: 18),
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFFFF4D9),
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(
+                                  color: const Color(0xFFF1C56D),
+                                ),
+                              ),
+                              child: const Text(
+                                'Account access is provisioned by admin. For email or account updates, contact admin.',
+                                style: TextStyle(
+                                  color: Color(0xFF724A00),
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            SizedBox(
+                              width: double.infinity,
+                              height: 54,
+                              child: ElevatedButton.icon(
+                                icon: const Icon(Icons.arrow_forward_rounded),
+                                label: const Text(
+                                  'Continue to Campus Login',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF1F7AE0),
+                                  foregroundColor: Colors.white,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                ),
+                                onPressed: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => const LoginScreen(),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            SizedBox(
+                              width: double.infinity,
+                              height: 54,
+                              child: OutlinedButton.icon(
+                                icon: const Icon(
+                                  Icons.store_mall_directory_outlined,
+                                ),
+                                label: const Text(
+                                  'Open College Portal',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: Colors.white,
+                                  side: const BorderSide(color: Colors.white70),
+                                  backgroundColor: Colors.black.withValues(
+                                    alpha: 0.12,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                ),
+                                onPressed: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) =>
+                                          const CollegeAccessScreen(),
+                                    ),
+                                  );
+                                },
+                              ),
                             ),
                           ],
                         ),
-                        const SizedBox(height: 18),
-                        Container(
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.14),
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(
-                              color: Colors.white.withValues(alpha: 0.25),
-                            ),
-                          ),
-                          child: isWide
-                              ? Row(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          const Text(
-                                            'Role-Based Platform',
-                                            style: TextStyle(
-                                              color: Colors.white,
-                                              fontSize: 18,
-                                              fontWeight: FontWeight.w800,
-                                              letterSpacing: 0.3,
-                                            ),
-                                          ),
-                                          const SizedBox(height: 10),
-                                          _roleTile(
-                                            icon: Icons.school_outlined,
-                                            title: 'Student',
-                                            subtitle:
-                                                'Browse menu, mark attendance, and earn rewards.',
-                                            color: const Color(0xFF1C6FE9),
-                                          ),
-                                          const SizedBox(height: 8),
-                                          _roleTile(
-                                            icon: Icons.storefront_outlined,
-                                            title: 'Canteen',
-                                            subtitle:
-                                                'Manage menu and use data to reduce over-prep.',
-                                            color: const Color(0xFF1F9362),
-                                          ),
-                                          const SizedBox(height: 8),
-                                          _roleTile(
-                                            icon: Icons.badge_outlined,
-                                            title: 'Faculty + Admin',
-                                            subtitle:
-                                                'Track operations, monitor security, and provision users.',
-                                            color: const Color(0xFF9654E8),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    const SizedBox(width: 14),
-                                    ClipRRect(
-                                      borderRadius: BorderRadius.circular(16),
-                                      child: SizedBox(
-                                        width: 220,
-                                        height: 270,
-                                        child: Stack(
-                                          fit: StackFit.expand,
-                                          children: [
-                                            _networkBackground(_backgroundImages[(_currentImageIndex + 1) % _backgroundImages.length]),
-                                            Container(
-                                              color: Colors.black.withValues(
-                                                alpha: 0.32,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                )
-                              : Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const Text(
-                                      'Role-Based Platform',
-                                      style: TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 18,
-                                        fontWeight: FontWeight.w800,
-                                        letterSpacing: 0.3,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 10),
-                                    _roleTile(
-                                      icon: Icons.school_outlined,
-                                      title: 'Student',
-                                      subtitle:
-                                          'Browse menu, mark attendance, and earn rewards.',
-                                      color: const Color(0xFF1C6FE9),
-                                    ),
-                                    const SizedBox(height: 8),
-                                    _roleTile(
-                                      icon: Icons.storefront_outlined,
-                                      title: 'Canteen',
-                                      subtitle:
-                                          'Manage menu and use data to reduce over-prep.',
-                                      color: const Color(0xFF1F9362),
-                                    ),
-                                    const SizedBox(height: 8),
-                                    _roleTile(
-                                      icon: Icons.badge_outlined,
-                                      title: 'Faculty + Admin',
-                                      subtitle:
-                                          'Track operations, monitor security, and provision users.',
-                                      color: const Color(0xFF9654E8),
-                                    ),
-                                  ],
-                                ),
-                        ),
-                        const SizedBox(height: 18),
-                        Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFFFF4D9),
-                            borderRadius: BorderRadius.circular(14),
-                            border: Border.all(color: const Color(0xFFF1C56D)),
-                          ),
-                          child: const Text(
-                            'Account access is provisioned by admin. For email or account updates, contact admin.',
-                            style: TextStyle(
-                              color: Color(0xFF724A00),
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        SizedBox(
-                          width: double.infinity,
-                          height: 54,
-                          child: ElevatedButton.icon(
-                            icon: const Icon(Icons.arrow_forward_rounded),
-                            label: const Text(
-                              'Continue to Campus Login',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF1F7AE0),
-                              foregroundColor: Colors.white,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(14),
-                              ),
-                            ),
-                            onPressed: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => const LoginScreen(),
-                                ),
-                              );
-                            },
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        SizedBox(
-                          width: double.infinity,
-                          height: 54,
-                          child: OutlinedButton.icon(
-                            icon: const Icon(
-                              Icons.store_mall_directory_outlined,
-                            ),
-                            label: const Text(
-                              'Open College Portal',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: Colors.white,
-                              side: const BorderSide(color: Colors.white70),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(14),
-                              ),
-                            ),
-                            onPressed: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => const CollegeAccessScreen(),
-                                ),
-                              );
-                            },
-                          ),
-                        ),
-                      ],
+                      ),
                     ),
-                  ),
-                ),
+                  );
+                },
               ),
             ),
           ),
