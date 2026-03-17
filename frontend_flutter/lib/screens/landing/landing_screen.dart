@@ -1,15 +1,46 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
 
 import '../auth/college_access_screen.dart';
 import '../auth/login_screen.dart';
 
-class LandingScreen extends StatelessWidget {
+class LandingScreen extends StatefulWidget {
   const LandingScreen({super.key});
 
-  static const _heroImage =
-      'https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?auto=format&fit=crop&w=1800&q=80';
-  static const _secondaryImage =
-      'https://images.unsplash.com/photo-1565299507177-b0ac66763828?auto=format&fit=crop&w=1400&q=80';
+  @override
+  State<LandingScreen> createState() => _LandingScreenState();
+}
+
+class _LandingScreenState extends State<LandingScreen> {
+  static const List<String> _backgroundImages = [
+    'https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?auto=format&fit=crop&w=1800&q=80',
+    'https://images.unsplash.com/photo-1565299507177-b0ac66763828?auto=format&fit=crop&w=1400&q=80',
+    'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=1800&q=80',
+    'https://images.unsplash.com/photo-1414235077428-338989a2e8c0?auto=format&fit=crop&w=1800&q=80',
+  ];
+
+  int _currentImageIndex = 0;
+  Timer? _imageRotationTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _startImageRotation();
+  }
+
+  @override
+  void dispose() {
+    _imageRotationTimer?.cancel();
+    super.dispose();
+  }
+
+  void _startImageRotation() {
+    _imageRotationTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
+      setState(() {
+        _currentImageIndex = (_currentImageIndex + 1) % _backgroundImages.length;
+      });
+    });
+  }
 
   Widget _featurePill(IconData icon, String label) {
     return Container(
@@ -85,29 +116,39 @@ class LandingScreen extends StatelessWidget {
   }
 
   Widget _networkBackground(String imageUrl) {
-    return Image.network(
-      imageUrl,
-      fit: BoxFit.cover,
-      errorBuilder: (context, error, stackTrace) {
-        return Container(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              colors: [Color(0xFF1B5E8F), Color(0xFF1D9A8A), Color(0xFF0E3B59)],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 1000),
+      transitionBuilder: (Widget child, Animation<double> animation) {
+        return FadeTransition(
+          opacity: animation,
+          child: child,
+        );
+      },
+      child: Image.network(
+        imageUrl,
+        key: ValueKey<String>(imageUrl),
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) {
+          return Container(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                colors: [Color(0xFF1B5E8F), Color(0xFF1D9A8A), Color(0xFF0E3B59)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
             ),
-          ),
-        );
-      },
-      loadingBuilder: (context, child, loadingProgress) {
-        if (loadingProgress == null) return child;
-        return Container(
-          color: const Color(0xFF113A57),
-          child: const Center(
-            child: CircularProgressIndicator(color: Colors.white),
-          ),
-        );
-      },
+          );
+        },
+        loadingBuilder: (context, child, loadingProgress) {
+          if (loadingProgress == null) return child;
+          return Container(
+            color: const Color(0xFF113A57),
+            child: const Center(
+              child: CircularProgressIndicator(color: Colors.white),
+            ),
+          );
+        },
+      ),
     );
   }
 
@@ -118,7 +159,9 @@ class LandingScreen extends StatelessWidget {
     return Scaffold(
       body: Stack(
         children: [
-          Positioned.fill(child: _networkBackground(_heroImage)),
+          Positioned.fill(
+            child: _networkBackground(_backgroundImages[_currentImageIndex]),
+          ),
           Positioned.fill(
             child: DecoratedBox(
               decoration: BoxDecoration(
@@ -266,7 +309,7 @@ class LandingScreen extends StatelessWidget {
                                         child: Stack(
                                           fit: StackFit.expand,
                                           children: [
-                                            _networkBackground(_secondaryImage),
+                                            _networkBackground(_backgroundImages[(_currentImageIndex + 1) % _backgroundImages.length]),
                                             Container(
                                               color: Colors.black.withValues(
                                                 alpha: 0.32,
