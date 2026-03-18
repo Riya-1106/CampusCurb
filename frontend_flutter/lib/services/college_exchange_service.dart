@@ -128,4 +128,32 @@ class CollegeExchangeService {
       throw Exception('Failed to request food: ${response.body}');
     }
   }
+
+  Future<Map<String, dynamic>> getExchangeRequests(String token) async {
+    final response = await http.get(
+      Uri.parse('$_baseUrl/admin/exchange-requests'),
+      headers: {'Authorization': 'Bearer $token'},
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Failed to load exchange requests: ${response.body}');
+    }
+    return json.decode(response.body) as Map<String, dynamic>;
+  }
+
+  Future<void> updateExchangeStatus(String requestId, String status, String token) async {
+    final response = await http.post(
+      Uri.parse('$_baseUrl/admin/exchange-status'),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      },
+      body: json.encode({
+        'id': requestId,
+        'status': status,
+      }),
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Failed to update status: ${response.body}');
+    }
+  }
 }

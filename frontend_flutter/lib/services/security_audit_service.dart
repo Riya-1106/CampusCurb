@@ -29,4 +29,27 @@ class SecurityAuditService {
       // Do not block login UX if audit logging fails.
     }
   }
+
+  Future<void> logAdminAction({
+    required String adminId,
+    required String action,
+    required String targetId,
+    required String details,
+  }) async {
+    try {
+      await http.post(
+        Uri.parse('$_baseUrl/admin/log-action'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'admin_id': adminId,
+          'action': action,
+          'target_id': targetId,
+          'details': details,
+          'timestamp': DateTime.now().toIso8601String(),
+        }),
+      );
+    } catch (_) {
+      // Do not block admin UX if audit logging fails.
+    }
+  }
 }

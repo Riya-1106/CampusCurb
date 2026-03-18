@@ -1683,3 +1683,16 @@ def test_smtp_config():
         "smtp_use_ssl": os.getenv("SMTP_USE_SSL", "NOT_SET"),
     }
 
+
+@app.get("/debug-signup-requests")
+def debug_signup_requests():
+    """Debug endpoint to see all signup requests without auth"""
+    try:
+        requests = list(db.collection("college_signup_requests").stream())
+        return {
+            "count": len(requests),
+            "requests": _serialize_docs(requests)
+        }
+    except Exception as e:
+        return {"error": str(e), "count": 0}
+
