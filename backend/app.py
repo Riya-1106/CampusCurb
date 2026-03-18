@@ -1668,3 +1668,18 @@ def retrain():
 
     return {"message": "Model retrained successfully"}
 
+
+@app.get("/test-smtp-config")
+def test_smtp_config():
+    """Test endpoint to verify SMTP environment variables are loaded"""
+    return {
+        "smtp_host": os.getenv("SMTP_HOST", "NOT_SET"),
+        "smtp_port": os.getenv("SMTP_PORT", "NOT_SET"),
+        "smtp_username": os.getenv("SMTP_USERNAME", "NOT_SET"),
+        "smtp_password": "SET" if os.getenv("SMTP_PASSWORD") else "NOT_SET",
+        "smtp_from_email": os.getenv("SMTP_FROM_EMAIL", "NOT_SET"),
+        "smtp_from_name": os.getenv("SMTP_FROM_NAME", "NOT_SET"),
+        "smtp_use_tls": os.getenv("SMTP_USE_TLS", "NOT_SET"),
+        "smtp_use_ssl": os.getenv("SMTP_USE_SSL", "NOT_SET"),
+    }
+
