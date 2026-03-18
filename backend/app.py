@@ -2,20 +2,16 @@ from fastapi import FastAPI, HTTPException, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import pandas as pd
+import requests
 import subprocess
 import json
 import os
 import re
-import smtplib
-import ssl
 import secrets
 import string
 from pathlib import Path
 from typing import List, Dict, Optional
 from datetime import datetime, timezone
-from email.message import EmailMessage
-from sendgrid import SendGridAPIClient
-from sendgrid.helpers.mail import Mail
 
 
 from firebase_admin import auth as firebase_auth
@@ -219,22 +215,22 @@ def _generate_strong_password(length: int = 20) -> str:
 
 
 def _send_password_setup_email(email: str, college_name: str, reset_link: str) -> None:
-    sendgrid_api_key = os.getenv("SENDGRID_API_KEY", "").strip()
+    brevo_api_key = os.getenv("BREVO_API_KEY", "").strip()
     from_email = os.getenv("SMTP_FROM_EMAIL", "noreply@campuscurb.com").strip()
     from_name = os.getenv("SMTP_FROM_NAME", "CampusCurb").strip() or "CampusCurb"
-    
-    if not sendgrid_api_key:
+
+    if not brevo_api_key:
         raise HTTPException(
             status_code=500,
-            detail="SENDGRID_API_KEY is not configured.",
+            detail="BREVO_API_KEY is not configured.",
         )
-    
+
     display_name = college_name.strip() or "College Partner"
-    message = Mail(
-        from_email=from_email,
-        to_emails=email,
-        subject="Set your CampusCurb college account password",
-        plain_text_content=(
+    payload = {
+        "sender": {"name": from_name, "email": from_email},
+        "to": [{"email": email, "name": display_name}],
+        "subject": "Set your CampusCurb college account password",
+        "textContent": (
             f"Hello {display_name},\n\n"
             "Your college access request has been approved.\n"
             "Use the secure link below to set your password:\n\n"
@@ -242,12 +238,28 @@ def _send_password_setup_email(email: str, college_name: str, reset_link: str) -
             "This link is single-use and may expire. If it expires, use the Forgot Password option in the app.\n\n"
             "Regards,\n"
             "CampusCurb Team"
-        )
-    )
-    
+        ),
+    }
+
     try:
-        sg = SendGridAPIClient(sendgrid_api_key)
-        sg.send(message)
+        response = requests.post(
+            "https://api.brevo.com/v3/smtp/email",
+            headers={
+                "accept": "application/json",
+                "api-key": brevo_api_key,
+                "content-type": "application/json",
+            },
+            json=payload,
+            timeout=20,
+        )
+        if response.status_code >= 400:
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    "Failed to send password setup email: "
+                    f"Brevo returned {response.status_code}. Response: {response.text}"
+                ),
+            )
     except Exception as exc:
         raise HTTPException(
             status_code=500,
@@ -256,35 +268,51 @@ def _send_password_setup_email(email: str, college_name: str, reset_link: str) -
 
 
 def _send_college_rejection_email(email: str, college_name: str, rejection_note: str) -> None:
-    sendgrid_api_key = os.getenv("SENDGRID_API_KEY", "").strip()
+    brevo_api_key = os.getenv("BREVO_API_KEY", "").strip()
     from_email = os.getenv("SMTP_FROM_EMAIL", "noreply@campuscurb.com").strip()
     from_name = os.getenv("SMTP_FROM_NAME", "CampusCurb").strip() or "CampusCurb"
-    
-    if not sendgrid_api_key:
+
+    if not brevo_api_key:
         raise HTTPException(
             status_code=500,
-            detail="SENDGRID_API_KEY is not configured.",
+            detail="BREVO_API_KEY is not configured.",
         )
-    
+
     display_name = college_name.strip() or "College Partner"
     note_section = f"\n\nReason for rejection:\n{rejection_note.strip()}" if rejection_note.strip() else ""
-    message = Mail(
-        from_email=from_email,
-        to_emails=email,
-        subject="CampusCurb College Signup Application Status",
-        plain_text_content=(
+    payload = {
+        "sender": {"name": from_name, "email": from_email},
+        "to": [{"email": email, "name": display_name}],
+        "subject": "CampusCurb College Signup Application Status",
+        "textContent": (
             f"Hello {display_name},\n\n"
             "Your college access request for CampusCurb has been reviewed and unfortunately rejected.\n"
             f"{note_section}\n\n"
             "If you believe this is an error or would like to reapply, please contact our support team.\n\n"
             "Regards,\n"
             "CampusCurb Team"
-        )
-    )
-    
+        ),
+    }
+
     try:
-        sg = SendGridAPIClient(sendgrid_api_key)
-        sg.send(message)
+        response = requests.post(
+            "https://api.brevo.com/v3/smtp/email",
+            headers={
+                "accept": "application/json",
+                "api-key": brevo_api_key,
+                "content-type": "application/json",
+            },
+            json=payload,
+            timeout=20,
+        )
+        if response.status_code >= 400:
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    "Failed to send rejection email: "
+                    f"Brevo returned {response.status_code}. Response: {response.text}"
+                ),
+            )
     except Exception as exc:
         raise HTTPException(
             status_code=500,
@@ -1713,8 +1741,10 @@ def retrain():
 
 @app.get("/test-smtp-config")
 def test_smtp_config():
-    """Test endpoint to verify SMTP environment variables are loaded"""
+    """Test endpoint to verify email environment variables are loaded."""
     return {
+        "provider": "brevo",
+        "brevo_api_key": "SET" if os.getenv("BREVO_API_KEY") else "NOT_SET",
         "smtp_host": os.getenv("SMTP_HOST", "NOT_SET"),
         "smtp_port": os.getenv("SMTP_PORT", "NOT_SET"),
         "smtp_username": os.getenv("SMTP_USERNAME", "NOT_SET"),
