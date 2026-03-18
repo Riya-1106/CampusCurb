@@ -21,10 +21,15 @@ class _LandingScreenState extends State<LandingScreen> {
 
   int _currentImageIndex = 0;
   Timer? _imageRotationTimer;
+  late final List<NetworkImage> _imageProviders;
 
   @override
   void initState() {
     super.initState();
+    _imageProviders = _backgroundImages.map(NetworkImage.new).toList();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _precacheBackgroundImages();
+    });
     _startImageRotation();
   }
 
@@ -35,12 +40,53 @@ class _LandingScreenState extends State<LandingScreen> {
   }
 
   void _startImageRotation() {
-    _imageRotationTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
+    _imageRotationTimer = Timer.periodic(const Duration(seconds: 3), (timer) {
       setState(() {
         _currentImageIndex =
             (_currentImageIndex + 1) % _backgroundImages.length;
       });
     });
+  }
+
+  Future<void> _precacheBackgroundImages() async {
+    for (final provider in _imageProviders) {
+      try {
+        await precacheImage(provider, context);
+      } catch (_) {
+        // Keep fallback gradient visible if any image fails.
+      }
+    }
+  }
+
+  Widget _buildFullScreenBackground() {
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        const DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Color(0xFF1B5E8F), Color(0xFF1D9A8A), Color(0xFF0E3B59)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+          ),
+        ),
+        for (int i = 0; i < _imageProviders.length; i++)
+          AnimatedOpacity(
+            opacity: i == _currentImageIndex ? 1 : 0,
+            duration: const Duration(milliseconds: 900),
+            curve: Curves.easeInOut,
+            child: Image(
+              image: _imageProviders[i],
+              fit: BoxFit.cover,
+              width: double.infinity,
+              height: double.infinity,
+              alignment: Alignment.center,
+              filterQuality: FilterQuality.low,
+            ),
+          ),
+      ],
+    );
   }
 
   Widget _featurePill(IconData icon, String label) {
@@ -130,6 +176,9 @@ class _LandingScreenState extends State<LandingScreen> {
         imageUrl,
         key: ValueKey<String>(imageUrl),
         fit: BoxFit.cover,
+        width: double.infinity,
+        height: double.infinity,
+        alignment: Alignment.center,
         filterQuality: FilterQuality.medium,
         gaplessPlayback: true,
         errorBuilder: (context, error, stackTrace) {
@@ -165,9 +214,7 @@ class _LandingScreenState extends State<LandingScreen> {
     return Scaffold(
       body: Stack(
         children: [
-          Positioned.fill(
-            child: _networkBackground(_backgroundImages[_currentImageIndex]),
-          ),
+          Positioned.fill(child: _buildFullScreenBackground()),
           Positioned.fill(
             child: DecoratedBox(
               decoration: BoxDecoration(

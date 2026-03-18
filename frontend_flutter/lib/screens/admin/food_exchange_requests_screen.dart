@@ -1,26 +1,26 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../../services/college_exchange_service.dart';
-import '../../../services/auth_service.dart';
 import '../../../services/security_audit_service.dart';
 
 class FoodExchangeRequestsScreen extends StatefulWidget {
   const FoodExchangeRequestsScreen({super.key});
 
   @override
-  State<FoodExchangeRequestsScreen> createState() => _FoodExchangeRequestsScreenState();
+  State<FoodExchangeRequestsScreen> createState() =>
+      _FoodExchangeRequestsScreenState();
 }
 
-class _FoodExchangeRequestsScreenState extends State<FoodExchangeRequestsScreen> {
-  final CollegeExchangeService _collegeExchangeService = CollegeExchangeService();
-  final AuthService _authService = AuthService();
+class _FoodExchangeRequestsScreenState
+    extends State<FoodExchangeRequestsScreen> {
+  final CollegeExchangeService _collegeExchangeService =
+      CollegeExchangeService();
   final SecurityAuditService _auditService = SecurityAuditService();
-  
+
   bool _isLoading = false;
+  bool _isUpdating = false;
   List<Map<String, dynamic>> _signupRequests = [];
   List<Map<String, dynamic>> _pendingListings = [];
-  List<Map<String, dynamic>> _foodRequests = [];
 
   @override
   void initState() {
@@ -45,7 +45,6 @@ class _FoodExchangeRequestsScreenState extends State<FoodExchangeRequestsScreen>
       setState(() {
         _signupRequests = data['signup_requests'] ?? [];
         _pendingListings = data['pending_listings'] ?? [];
-        _foodRequests = data['food_requests'] ?? [];
         _isLoading = false;
       });
     } catch (e) {
@@ -53,30 +52,47 @@ class _FoodExchangeRequestsScreenState extends State<FoodExchangeRequestsScreen>
         _isLoading = false;
       });
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error loading requests: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error loading requests: $e')));
       }
     }
   }
 
-  Future<void> _updateRequestStatus(String requestId, String status, String type) async {
+  Future<void> _updateRequestStatus(
+    String requestId,
+    String status,
+    String type, {
+    String rejectionNote = '',
+  }) async {
+    if (_isUpdating) return; // Prevent duplicate requests
+
+    setState(() {
+      _isUpdating = true;
+    });
+
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
 
       final token = await user.getIdToken();
-      await _collegeExchangeService.updateExchangeStatus(requestId, status, token!);
+      await _collegeExchangeService.updateExchangeStatus(
+        requestId,
+        status,
+        token!,
+        rejectionNote: rejectionNote,
+      );
 
       await _auditService.logAdminAction(
         adminId: user.uid,
         action: 'update_exchange_status',
         targetId: requestId,
-        details: 'Updated $type status to $status',
+        details:
+            'Updated $type status to $status${rejectionNote.isNotEmpty ? ' with reason: $rejectionNote' : ''}',
       );
 
       await _loadExchangeRequests();
-      
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('$type ${status.toUpperCase()} successfully')),
@@ -84,11 +100,67 @@ class _FoodExchangeRequestsScreenState extends State<FoodExchangeRequestsScreen>
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error updating status: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error updating status: $e')));
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isUpdating = false;
+        });
       }
     }
+  }
+
+  Future<void> _showRejectionDialog(String requestId, String type) async {
+    final noteController = TextEditingController();
+
+    return showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Reject Request'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Please provide a reason for rejection:'),
+            const SizedBox(height: 16),
+            TextField(
+              controller: noteController,
+              maxLines: 4,
+              decoration: InputDecoration(
+                hintText: 'Enter rejection reason...',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                filled: true,
+                fillColor: Colors.grey[50],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final note = noteController.text.trim();
+              Navigator.pop(context);
+              _updateRequestStatus(
+                requestId,
+                'rejected',
+                type,
+                rejectionNote: note,
+              );
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Reject'),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildSignupRequests() {
@@ -153,8 +225,9 @@ class _FoodExchangeRequestsScreenState extends State<FoodExchangeRequestsScreen>
 
   Widget _buildRequestCard(Map<String, dynamic> request, String type) {
     Color statusColor = Colors.grey;
-    String statusText = request['status']?.toString().toUpperCase() ?? 'UNKNOWN';
-    
+    String statusText =
+        request['status']?.toString().toUpperCase() ?? 'UNKNOWN';
+
     switch (request['status']) {
       case 'pending':
         statusColor = Colors.orange;
@@ -178,14 +251,17 @@ class _FoodExchangeRequestsScreenState extends State<FoodExchangeRequestsScreen>
               children: [
                 Expanded(
                   child: Text(
-                    type == 'signup' 
+                    type == 'signup'
                         ? request['college_name'] ?? 'Unknown College'
                         : request['food_item'] ?? 'Unknown Item',
                     style: const TextStyle(fontWeight: FontWeight.bold),
                   ),
                 ),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: statusColor,
                     borderRadius: BorderRadius.circular(12),
@@ -207,15 +283,24 @@ class _FoodExchangeRequestsScreenState extends State<FoodExchangeRequestsScreen>
               _buildDetailRow('Email', request['email']),
               _buildDetailRow('Phone', request['phone'] ?? 'Not provided'),
               if (request['allowed_domains'] != null)
-                _buildDetailRow('Domains', (request['allowed_domains'] as List).join(', ')),
-              if (request['notes'] != null && request['notes'].toString().isNotEmpty)
+                _buildDetailRow(
+                  'Domains',
+                  (request['allowed_domains'] as List).join(', '),
+                ),
+              if (request['notes'] != null &&
+                  request['notes'].toString().isNotEmpty)
                 _buildDetailRow('Notes', request['notes']),
             ] else ...[
               _buildDetailRow('College', request['collegeName'] ?? 'Unknown'),
-              _buildDetailRow('Quantity', '${request['quantity']} ${request['unit'] ?? 'units'}'),
-              if (request['pickup_window'] != null && request['pickup_window'].toString().isNotEmpty)
+              _buildDetailRow(
+                'Quantity',
+                '${request['quantity']} ${request['unit'] ?? 'units'}',
+              ),
+              if (request['pickup_window'] != null &&
+                  request['pickup_window'].toString().isNotEmpty)
                 _buildDetailRow('Pickup', request['pickup_window']),
-              if (request['notes'] != null && request['notes'].toString().isNotEmpty)
+              if (request['notes'] != null &&
+                  request['notes'].toString().isNotEmpty)
                 _buildDetailRow('Notes', request['notes']),
             ],
             const SizedBox(height: 12),
@@ -223,14 +308,32 @@ class _FoodExchangeRequestsScreenState extends State<FoodExchangeRequestsScreen>
               Row(
                 children: [
                   ElevatedButton(
-                    onPressed: () => _updateRequestStatus(request['id'], 'approved', type),
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-                    child: const Text('Approve'),
+                    onPressed: _isUpdating
+                        ? null
+                        : () => _updateRequestStatus(
+                            request['id'],
+                            'approved',
+                            type,
+                          ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green,
+                    ),
+                    child: _isUpdating
+                        ? const SizedBox(
+                            height: 16,
+                            width: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Text('Approve'),
                   ),
                   const SizedBox(width: 8),
                   ElevatedButton(
-                    onPressed: () => _updateRequestStatus(request['id'], 'rejected', type),
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                    onPressed: _isUpdating
+                        ? null
+                        : () => _showRejectionDialog(request['id'], type),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.red,
+                    ),
                     child: const Text('Reject'),
                   ),
                 ],
@@ -254,9 +357,7 @@ class _FoodExchangeRequestsScreenState extends State<FoodExchangeRequestsScreen>
               style: const TextStyle(fontWeight: FontWeight.w500),
             ),
           ),
-          Expanded(
-            child: Text(value),
-          ),
+          Expanded(child: Text(value)),
         ],
       ),
     );

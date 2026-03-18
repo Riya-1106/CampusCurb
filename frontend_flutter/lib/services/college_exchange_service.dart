@@ -7,6 +7,16 @@ import 'api_config.dart';
 class CollegeExchangeService {
   static String get _baseUrl => ApiConfig.baseUrl;
 
+  List<Map<String, dynamic>> _toMapList(dynamic value) {
+    if (value is List) {
+      return value
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList();
+    }
+    return <Map<String, dynamic>>[];
+  }
+
   Future<void> submitSignupRequest({
     required String collegeName,
     required String contactName,
@@ -137,10 +147,26 @@ class CollegeExchangeService {
     if (response.statusCode != 200) {
       throw Exception('Failed to load exchange requests: ${response.body}');
     }
-    return json.decode(response.body) as Map<String, dynamic>;
+    final decoded = json.decode(response.body);
+    if (decoded is! Map) {
+      throw Exception('Invalid exchange requests response format');
+    }
+
+    final data = Map<String, dynamic>.from(decoded);
+    return {
+      ...data,
+      'signup_requests': _toMapList(data['signup_requests']),
+      'pending_listings': _toMapList(data['pending_listings']),
+      'food_requests': _toMapList(data['food_requests']),
+    };
   }
 
-  Future<void> updateExchangeStatus(String requestId, String status, String token) async {
+  Future<void> updateExchangeStatus(
+    String requestId,
+    String status,
+    String token, {
+    String rejectionNote = '',
+  }) async {
     final response = await http.post(
       Uri.parse('$_baseUrl/admin/exchange-status'),
       headers: {
@@ -150,6 +176,7 @@ class CollegeExchangeService {
       body: json.encode({
         'id': requestId,
         'status': status,
+        if (rejectionNote.isNotEmpty) 'rejection_note': rejectionNote,
       }),
     );
     if (response.statusCode != 200) {

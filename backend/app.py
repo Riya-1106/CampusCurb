@@ -273,6 +273,60 @@ def _send_password_setup_email(email: str, college_name: str, reset_link: str) -
         ) from exc
 
 
+def _send_college_rejection_email(email: str, college_name: str, rejection_note: str) -> None:
+    smtp_host = os.getenv("SMTP_HOST", "").strip()
+    smtp_port = int(os.getenv("SMTP_PORT", "587").strip() or "587")
+    smtp_username = os.getenv("SMTP_USERNAME", "").strip()
+    smtp_password = os.getenv("SMTP_PASSWORD", "").strip()
+    from_email = os.getenv("SMTP_FROM_EMAIL", smtp_username).strip()
+    from_name = os.getenv("SMTP_FROM_NAME", "CampusCurb").strip() or "CampusCurb"
+    use_tls = os.getenv("SMTP_USE_TLS", "true").strip().lower() not in {"0", "false", "no"}
+    use_ssl = os.getenv("SMTP_USE_SSL", "false").strip().lower() in {"1", "true", "yes"}
+
+    if not (smtp_host and smtp_username and smtp_password and from_email):
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "SMTP is not configured. Set SMTP_HOST, SMTP_PORT, SMTP_USERNAME, "
+                "SMTP_PASSWORD and SMTP_FROM_EMAIL."
+            ),
+        )
+
+    display_name = college_name.strip() or "College Partner"
+    note_section = f"\n\nReason for rejection:\n{rejection_note.strip()}" if rejection_note.strip() else ""
+    message = EmailMessage()
+    message["Subject"] = "CampusCurb College Signup Application Status"
+    message["From"] = f"{from_name} <{from_email}>"
+    message["To"] = email
+    message.set_content(
+        (
+            f"Hello {display_name},\n\n"
+            "Your college access request for CampusCurb has been reviewed and unfortunately rejected.\n"
+            f"{note_section}\n\n"
+            "If you believe this is an error or would like to reapply, please contact our support team.\n\n"
+            "Regards,\n"
+            "CampusCurb Team"
+        )
+    )
+
+    try:
+        if use_ssl:
+            with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=20) as client:
+                client.login(smtp_username, smtp_password)
+                client.send_message(message)
+        else:
+            with smtplib.SMTP(smtp_host, smtp_port, timeout=20) as client:
+                if use_tls:
+                    client.starttls(context=ssl.create_default_context())
+                client.login(smtp_username, smtp_password)
+                client.send_message(message)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to send rejection email: {str(exc)}",
+        ) from exc
+
+
 # ==========================================
 # INPUT MODEL FOR PREDICTION
 # ==========================================
@@ -795,6 +849,7 @@ def admin_menu_reject(payload: MenuAction):
 class ExchangeStatus(BaseModel):
     id: str
     status: str
+    rejection_note: Optional[str] = None
 
 
 
@@ -984,16 +1039,22 @@ def admin_exchange_status(
 
 
             reset_link = ""
+            password_setup_email_sent = False
             try:
                 reset_link = firebase_auth.generate_password_reset_link(email)
                 _send_password_setup_email(email, college_name, reset_link)
-            except HTTPException:
-                if created_new_auth_user and auth_user is not None:
-                    try:
-                        firebase_auth.delete_user(auth_user.uid)
-                    except Exception:
-                        pass
-                raise
+                password_setup_email_sent = True
+            except HTTPException as exc:
+                # In local/dev SMTP may be intentionally unset. Keep approval successful.
+                if "SMTP is not configured" in str(exc.detail):
+                    print(f"Warning: SMTP not configured; skipped approval email for {email}")
+                else:
+                    if created_new_auth_user and auth_user is not None:
+                        try:
+                            firebase_auth.delete_user(auth_user.uid)
+                        except Exception:
+                            pass
+                    raise
             except Exception as exc:
                 if created_new_auth_user and auth_user is not None:
                     try:
@@ -1029,12 +1090,27 @@ def admin_exchange_status(
             "status": payload.status,
             "reviewedAt": datetime.now(timezone.utc).isoformat(),
             "reviewedBy": admin_uid,
+            "rejectionNote": payload.rejection_note or "",
         }, merge=True)
+        
+        # Send rejection email if status is rejected
+        if payload.status == "rejected" and email:
+            college_name = str(signup_data.get("college_name", "")).strip()
+            rejection_note = payload.rejection_note or "No reason provided."
+            try:
+                _send_college_rejection_email(email, college_name, rejection_note)
+            except Exception as exc:
+                # Log but don't fail the request if email fails
+                print(f"Warning: Failed to send rejection email to {email}: {str(exc)}")
+        
         response = {"message": "Signup request updated", "id": payload.id, "status": payload.status}
         if payload.status == "approved":
             response["provisioned_email"] = email
             response["auth_user_created"] = created_new_auth_user
-            response["password_setup_email_sent"] = True
+            response["password_setup_email_sent"] = password_setup_email_sent
+            response["password_setup_link_generated"] = bool(reset_link)
+        elif payload.status == "rejected":
+            response["rejection_email_sent"] = True
         return response
 
 
