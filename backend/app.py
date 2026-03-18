@@ -1040,21 +1040,10 @@ def admin_exchange_status(
 
             reset_link = ""
             password_setup_email_sent = False
+            password_setup_email_error = ""
+
             try:
                 reset_link = firebase_auth.generate_password_reset_link(email)
-                _send_password_setup_email(email, college_name, reset_link)
-                password_setup_email_sent = True
-            except HTTPException as exc:
-                # In local/dev SMTP may be intentionally unset. Keep approval successful.
-                if "SMTP is not configured" in str(exc.detail):
-                    print(f"Warning: SMTP not configured; skipped approval email for {email}")
-                else:
-                    if created_new_auth_user and auth_user is not None:
-                        try:
-                            firebase_auth.delete_user(auth_user.uid)
-                        except Exception:
-                            pass
-                    raise
             except Exception as exc:
                 if created_new_auth_user and auth_user is not None:
                     try:
@@ -1065,6 +1054,16 @@ def admin_exchange_status(
                     status_code=500,
                     detail=f"Unable to create password setup link: {str(exc)}",
                 ) from exc
+
+            try:
+                _send_password_setup_email(email, college_name, reset_link)
+                password_setup_email_sent = True
+            except HTTPException as exc:
+                password_setup_email_error = str(exc.detail)
+                print(f"Warning: Could not send approval email to {email}: {password_setup_email_error}")
+            except Exception as exc:
+                password_setup_email_error = str(exc)
+                print(f"Warning: Could not send approval email to {email}: {password_setup_email_error}")
 
 
             db.collection("users").document(auth_user.uid).set(
@@ -1109,6 +1108,8 @@ def admin_exchange_status(
             response["auth_user_created"] = created_new_auth_user
             response["password_setup_email_sent"] = password_setup_email_sent
             response["password_setup_link_generated"] = bool(reset_link)
+            if password_setup_email_error:
+                response["password_setup_email_error"] = password_setup_email_error
         elif payload.status == "rejected":
             response["rejection_email_sent"] = True
         return response
