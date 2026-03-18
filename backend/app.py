@@ -14,6 +14,8 @@ from pathlib import Path
 from typing import List, Dict, Optional
 from datetime import datetime, timezone
 from email.message import EmailMessage
+from sendgrid import SendGridAPIClient
+from sendgrid.helpers.mail import Mail
 
 
 from firebase_admin import auth as firebase_auth
@@ -217,33 +219,22 @@ def _generate_strong_password(length: int = 20) -> str:
 
 
 def _send_password_setup_email(email: str, college_name: str, reset_link: str) -> None:
-    smtp_host = os.getenv("SMTP_HOST", "").strip()
-    smtp_port = int(os.getenv("SMTP_PORT", "587").strip() or "587")
-    smtp_username = os.getenv("SMTP_USERNAME", "").strip()
-    smtp_password = os.getenv("SMTP_PASSWORD", "").strip()
-    from_email = os.getenv("SMTP_FROM_EMAIL", smtp_username).strip()
+    sendgrid_api_key = os.getenv("SENDGRID_API_KEY", "").strip()
+    from_email = os.getenv("SMTP_FROM_EMAIL", "noreply@campuscurb.com").strip()
     from_name = os.getenv("SMTP_FROM_NAME", "CampusCurb").strip() or "CampusCurb"
-    use_tls = os.getenv("SMTP_USE_TLS", "true").strip().lower() not in {"0", "false", "no"}
-    use_ssl = os.getenv("SMTP_USE_SSL", "false").strip().lower() in {"1", "true", "yes"}
-
-
-    if not (smtp_host and smtp_username and smtp_password and from_email):
+    
+    if not sendgrid_api_key:
         raise HTTPException(
             status_code=500,
-            detail=(
-                "SMTP is not configured. Set SMTP_HOST, SMTP_PORT, SMTP_USERNAME, "
-                "SMTP_PASSWORD and SMTP_FROM_EMAIL."
-            ),
+            detail="SENDGRID_API_KEY is not configured.",
         )
-
-
+    
     display_name = college_name.strip() or "College Partner"
-    message = EmailMessage()
-    message["Subject"] = "Set your CampusCurb college account password"
-    message["From"] = f"{from_name} <{from_email}>"
-    message["To"] = email
-    message.set_content(
-        (
+    message = Mail(
+        from_email=from_email,
+        to_emails=email,
+        subject="Set your CampusCurb college account password",
+        plain_text_content=(
             f"Hello {display_name},\n\n"
             "Your college access request has been approved.\n"
             "Use the secure link below to set your password:\n\n"
@@ -253,19 +244,10 @@ def _send_password_setup_email(email: str, college_name: str, reset_link: str) -
             "CampusCurb Team"
         )
     )
-
-
+    
     try:
-        if use_ssl:
-            with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=20) as client:
-                client.login(smtp_username, smtp_password)
-                client.send_message(message)
-        else:
-            with smtplib.SMTP(smtp_host, smtp_port, timeout=20) as client:
-                if use_tls:
-                    client.starttls(context=ssl.create_default_context())
-                client.login(smtp_username, smtp_password)
-                client.send_message(message)
+        sg = SendGridAPIClient(sendgrid_api_key)
+        sg.send(message)
     except Exception as exc:
         raise HTTPException(
             status_code=500,
@@ -274,32 +256,23 @@ def _send_password_setup_email(email: str, college_name: str, reset_link: str) -
 
 
 def _send_college_rejection_email(email: str, college_name: str, rejection_note: str) -> None:
-    smtp_host = os.getenv("SMTP_HOST", "").strip()
-    smtp_port = int(os.getenv("SMTP_PORT", "587").strip() or "587")
-    smtp_username = os.getenv("SMTP_USERNAME", "").strip()
-    smtp_password = os.getenv("SMTP_PASSWORD", "").strip()
-    from_email = os.getenv("SMTP_FROM_EMAIL", smtp_username).strip()
+    sendgrid_api_key = os.getenv("SENDGRID_API_KEY", "").strip()
+    from_email = os.getenv("SMTP_FROM_EMAIL", "noreply@campuscurb.com").strip()
     from_name = os.getenv("SMTP_FROM_NAME", "CampusCurb").strip() or "CampusCurb"
-    use_tls = os.getenv("SMTP_USE_TLS", "true").strip().lower() not in {"0", "false", "no"}
-    use_ssl = os.getenv("SMTP_USE_SSL", "false").strip().lower() in {"1", "true", "yes"}
-
-    if not (smtp_host and smtp_username and smtp_password and from_email):
+    
+    if not sendgrid_api_key:
         raise HTTPException(
             status_code=500,
-            detail=(
-                "SMTP is not configured. Set SMTP_HOST, SMTP_PORT, SMTP_USERNAME, "
-                "SMTP_PASSWORD and SMTP_FROM_EMAIL."
-            ),
+            detail="SENDGRID_API_KEY is not configured.",
         )
-
+    
     display_name = college_name.strip() or "College Partner"
     note_section = f"\n\nReason for rejection:\n{rejection_note.strip()}" if rejection_note.strip() else ""
-    message = EmailMessage()
-    message["Subject"] = "CampusCurb College Signup Application Status"
-    message["From"] = f"{from_name} <{from_email}>"
-    message["To"] = email
-    message.set_content(
-        (
+    message = Mail(
+        from_email=from_email,
+        to_emails=email,
+        subject="CampusCurb College Signup Application Status",
+        plain_text_content=(
             f"Hello {display_name},\n\n"
             "Your college access request for CampusCurb has been reviewed and unfortunately rejected.\n"
             f"{note_section}\n\n"
@@ -308,18 +281,10 @@ def _send_college_rejection_email(email: str, college_name: str, rejection_note:
             "CampusCurb Team"
         )
     )
-
+    
     try:
-        if use_ssl:
-            with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=20) as client:
-                client.login(smtp_username, smtp_password)
-                client.send_message(message)
-        else:
-            with smtplib.SMTP(smtp_host, smtp_port, timeout=20) as client:
-                if use_tls:
-                    client.starttls(context=ssl.create_default_context())
-                client.login(smtp_username, smtp_password)
-                client.send_message(message)
+        sg = SendGridAPIClient(sendgrid_api_key)
+        sg.send(message)
     except Exception as exc:
         raise HTTPException(
             status_code=500,
@@ -1772,4 +1737,15 @@ def debug_signup_requests():
         }
     except Exception as e:
         return {"error": str(e), "count": 0}
+
+@app.get("/debug-smtp")
+async def test_smtp_debug():
+    return {
+        "smtp_host": os.getenv("SMTP_HOST", "NOT SET"),
+        "smtp_port": os.getenv("SMTP_PORT", "NOT SET"),
+        "smtp_username": os.getenv("SMTP_USERNAME", "NOT SET"),
+        "smtp_password": "***" if os.getenv("SMTP_PASSWORD") else "NOT SET",
+        "use_ssl": os.getenv("SMTP_USE_SSL", "NOT SET"),
+        "use_tls": os.getenv("SMTP_USE_TLS", "NOT SET"),
+    }
 
