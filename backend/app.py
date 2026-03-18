@@ -6,18 +6,27 @@ import subprocess
 import json
 import os
 import re
+import smtplib
+import ssl
+import secrets
+import string
 from pathlib import Path
 from typing import List, Dict, Optional
 from datetime import datetime, timezone
+from email.message import EmailMessage
+
 
 from firebase_admin import auth as firebase_auth
 from firebase_admin import messaging as firebase_messaging
 from firebase_connect import db
 
+
 from predict import predict_demand, get_rewards
 from waste_analytics import waste_analysis
 
+
 app = FastAPI()
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -27,10 +36,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 def _extract_bearer_token(authorization: Optional[str]) -> str:
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing or invalid auth token")
     return authorization.split(" ", 1)[1].strip()
+
+
 
 
 def _require_authenticated_uid(authorization: Optional[str]) -> str:
@@ -40,10 +52,13 @@ def _require_authenticated_uid(authorization: Optional[str]) -> str:
     except Exception as exc:
         raise HTTPException(status_code=401, detail="Invalid Firebase token") from exc
 
+
     uid = decoded.get("uid")
     if not uid:
         raise HTTPException(status_code=401, detail="Invalid token payload")
     return uid
+
+
 
 
 def _require_admin_uid(authorization: Optional[str]) -> str:
@@ -53,19 +68,25 @@ def _require_admin_uid(authorization: Optional[str]) -> str:
     except Exception as exc:
         raise HTTPException(status_code=401, detail="Invalid Firebase token") from exc
 
+
     uid = decoded.get("uid")
     if not uid:
         raise HTTPException(status_code=401, detail="Invalid token payload")
+
 
     user_doc = db.collection("users").document(uid).get()
     if not user_doc.exists:
         raise HTTPException(status_code=403, detail="User profile missing")
 
+
     user_data = user_doc.to_dict() or {}
     if user_data.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Admin role required")
 
+
     return uid
+
+
 
 
 def _require_role_uid(authorization: Optional[str], allowed_roles: set[str]) -> tuple[str, Dict]:
@@ -74,13 +95,17 @@ def _require_role_uid(authorization: Optional[str], allowed_roles: set[str]) -> 
     if not user_doc.exists:
         raise HTTPException(status_code=403, detail="User profile missing")
 
+
     user_data = user_doc.to_dict() or {}
     if user_data.get("role") not in allowed_roles:
         raise HTTPException(status_code=403, detail="Insufficient role")
     if user_data.get("isActive") is False:
         raise HTTPException(status_code=403, detail="Account is inactive")
 
+
     return uid, user_data
+
+
 
 
 def _normalize_domain(value: str) -> str:
@@ -92,11 +117,15 @@ def _normalize_domain(value: str) -> str:
     return domain
 
 
+
+
 def _email_domain(email: str) -> str:
     normalized = email.strip().lower()
     if "@" not in normalized:
         return ""
     return _normalize_domain(normalized.rsplit("@", 1)[1])
+
+
 
 
 def _normalize_college_key(value: str) -> str:
@@ -106,19 +135,26 @@ def _normalize_college_key(value: str) -> str:
     return cleaned.strip("-")
 
 
+
+
 def _build_college_key(college_name: str, email: str, domains: List[str]) -> str:
     normalized_domains = [_normalize_domain(d) for d in domains if _normalize_domain(d)]
     if normalized_domains:
         return _normalize_college_key(normalized_domains[0])
 
+
     email_domain = _email_domain(email)
     if email_domain:
         return _normalize_college_key(email_domain)
 
+
     if college_name.strip():
         return _normalize_college_key(college_name)
 
+
     return ""
+
+
 
 
 def _resolve_user_college_key(uid: str, user_data: Dict) -> str:
@@ -126,22 +162,28 @@ def _resolve_user_college_key(uid: str, user_data: Dict) -> str:
     if raw_key:
         return _normalize_college_key(raw_key)
 
+
     domains = user_data.get("collegeDomains") if isinstance(user_data.get("collegeDomains"), list) else []
     if domains:
         fallback = _normalize_domain(str(domains[0]))
         if fallback:
             return _normalize_college_key(fallback)
 
+
     email = str(user_data.get("email", ""))
     email_fallback = _email_domain(email)
     if email_fallback:
         return _normalize_college_key(email_fallback)
 
+
     name_fallback = str(user_data.get("collegeName", "") or user_data.get("name", ""))
     if name_fallback.strip():
         return _normalize_college_key(name_fallback)
 
+
     return uid
+
+
 
 
 def _validate_strong_password(password: str) -> Optional[str]:
@@ -161,11 +203,83 @@ def _validate_strong_password(password: str) -> Optional[str]:
         return "Password must contain at least one special character"
     return None
 
+
+
+
+def _generate_strong_password(length: int = 20) -> str:
+    alphabet = string.ascii_letters + string.digits + "@#$%&*?!"
+    while True:
+        password = "".join(secrets.choice(alphabet) for _ in range(length))
+        if _validate_strong_password(password) is None:
+            return password
+
+
+
+
+def _send_password_setup_email(email: str, college_name: str, reset_link: str) -> None:
+    smtp_host = os.getenv("SMTP_HOST", "").strip()
+    smtp_port = int(os.getenv("SMTP_PORT", "587").strip() or "587")
+    smtp_username = os.getenv("SMTP_USERNAME", "").strip()
+    smtp_password = os.getenv("SMTP_PASSWORD", "").strip()
+    from_email = os.getenv("SMTP_FROM_EMAIL", smtp_username).strip()
+    from_name = os.getenv("SMTP_FROM_NAME", "CampusCurb").strip() or "CampusCurb"
+    use_tls = os.getenv("SMTP_USE_TLS", "true").strip().lower() not in {"0", "false", "no"}
+    use_ssl = os.getenv("SMTP_USE_SSL", "false").strip().lower() in {"1", "true", "yes"}
+
+
+    if not (smtp_host and smtp_username and smtp_password and from_email):
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "SMTP is not configured. Set SMTP_HOST, SMTP_PORT, SMTP_USERNAME, "
+                "SMTP_PASSWORD and SMTP_FROM_EMAIL."
+            ),
+        )
+
+
+    display_name = college_name.strip() or "College Partner"
+    message = EmailMessage()
+    message["Subject"] = "Set your CampusCurb college account password"
+    message["From"] = f"{from_name} <{from_email}>"
+    message["To"] = email
+    message.set_content(
+        (
+            f"Hello {display_name},\n\n"
+            "Your college access request has been approved.\n"
+            "Use the secure link below to set your password:\n\n"
+            f"{reset_link}\n\n"
+            "This link is single-use and may expire. If it expires, use the Forgot Password option in the app.\n\n"
+            "Regards,\n"
+            "CampusCurb Team"
+        )
+    )
+
+
+    try:
+        if use_ssl:
+            with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=20) as client:
+                client.login(smtp_username, smtp_password)
+                client.send_message(message)
+        else:
+            with smtplib.SMTP(smtp_host, smtp_port, timeout=20) as client:
+                if use_tls:
+                    client.starttls(context=ssl.create_default_context())
+                client.login(smtp_username, smtp_password)
+                client.send_message(message)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to send password setup email: {str(exc)}",
+        ) from exc
+
+
 # ==========================================
 # INPUT MODEL FOR PREDICTION
 # ==========================================
 
+
 class PredictionInput(BaseModel):
+
 
     food_item: str
     time_slot: str
@@ -174,23 +288,31 @@ class PredictionInput(BaseModel):
     temperature: int
 
 
+
+
 # ==========================================
 # HOME ROUTE
 # ==========================================
+
 
 @app.get("/")
 def home():
     return {"message": "Food Demand Prediction API Running"}
 
 
+
+
 # ==========================================
 # PREDICT DEMAND
 # ==========================================
 
+
 @app.post("/predict")
 def predict(data: PredictionInput):
 
+
     input_data = {
+
 
         "food_item": data.food_item,
         "time_slot": data.time_slot,
@@ -198,9 +320,12 @@ def predict(data: PredictionInput):
         "price": data.price,
         "temperature": data.temperature
 
+
     }
 
+
     prediction = predict_demand(input_data)
+
 
     return {
         "predicted_demand": prediction["predicted_demand"],
@@ -210,71 +335,99 @@ def predict(data: PredictionInput):
     }
 
 
+
+
 # ==========================================
 # MENU OPTIMIZATION
 # ==========================================
 
+
 @app.get("/menu-optimization")
 def menu_analysis():
 
+
     from predict import menu_optimization
 
+
     return menu_optimization()
+
 
 # ==========================================
 # STUDENT ANALYTICS
 # ==========================================
 
+
 @app.get("/student-analytics")
 def analytics():
 
+
     from student_analytics import student_behavior
 
+
     return student_behavior()
+
+
 
 
 @app.get("/prediction-accuracy")
 def prediction_accuracy():
 
+
     from student_analytics import prediction_accuracy_summary
 
+
     return prediction_accuracy_summary()
+
 
 # ==========================================
 # GET REWARDS
 # ==========================================
 
+
 @app.get("/rewards/{points}")
 def get_user_rewards(points: int):
 
+
     reward = get_rewards(points)
 
+
     return {"points": points, "reward": reward}
+
+
 
 
 # ==========================================
 # GET DAILY FORECAST
 # ==========================================
 
+
 @app.get("/forecast")
 def forecast():
 
+
     df = pd.read_csv("data/tomorrow_forecast.csv")
 
+
     return df.to_dict(orient="records")
+
 
 @app.get("/waste-analytics")
 def waste():
 
+
     return waste_analysis()
+
+
 
 
 @app.get("/waste-report")
 def waste_report():
 
+
     report = waste_analysis()
     if "error" in report:
         return report
+
 
     return {
         "Total Prepared": report.get("total_food_prepared", 0),
@@ -285,24 +438,32 @@ def waste_report():
     }
 
 
+
+
 # ==========================================
 # WASTE ANALYTICS (Flutter compatible)
 # ==========================================
 
+
 @app.get("/waste_analytics")
 def waste_analytics():
 
+
     return waste_analysis()
+
+
 
 
 # ==========================================
 # DEMAND FORECAST DASHBOARD
 # ==========================================
 
+
 @app.get("/demand-dashboard")
 def demand_dashboard():
     # Fixed set of canteen menu items for dashboard
     items = ["Burger", "Pizza", "Sandwich"]
+
 
     base_input = {
         "time_slot": "11:00-13:00",
@@ -310,6 +471,7 @@ def demand_dashboard():
         "price": 90,
         "temperature": 25
     }
+
 
     rows = []
     for item in items:
@@ -323,6 +485,7 @@ def demand_dashboard():
             "accuracy_percentage": pred.get("accuracy_percentage", 0.0),
         })
 
+
     return {
         "dashboard": rows,
         "formula": "predicted_demand + safety_margin (10%)",
@@ -330,18 +493,23 @@ def demand_dashboard():
     }
 
 
+
+
 # ==========================================
 # ADMIN WORKFLOW STORAGE + ENDPOINTS
 # ==========================================
+
 
 DATA_DIR = Path("./data")
 DATA_DIR.mkdir(exist_ok=True)
 MENU_FILE = DATA_DIR / "admin_menu_pending.json"
 EXCHANGE_FILE = DATA_DIR / "admin_exchange_requests.json"
 
+
 MENU_MASTER = DATA_DIR / "menu.json"
 ORDERS_FILE = DATA_DIR / "orders.json"
 ATTENDANCE_FILE = DATA_DIR / "attendance.json"
+
 
 DEFAULT_MENU_PENDING = [
     {
@@ -362,6 +530,7 @@ DEFAULT_MENU_PENDING = [
     }
 ]
 
+
 DEFAULT_EXCHANGE_REQUESTS = [
     {
         "id": "e1",
@@ -379,16 +548,20 @@ DEFAULT_EXCHANGE_REQUESTS = [
     }
 ]
 
+
 DEFAULT_MENU = [
     {"id": "1", "name": "Veg Wrap", "price": 80},
     {"id": "2", "name": "Masala Dosa", "price": 50},
     {"id": "3", "name": "Cheese Pizza", "price": 120},
 ]
 
+
 DEFAULT_ORDERS = []
 DEFAULT_ATTENDANCE = []
 LOGIN_ATTEMPTS_FILE = DATA_DIR / "auth_login_attempts.json"
 DEFAULT_LOGIN_ATTEMPTS = []
+
+
 
 
 def load_data(path: Path, default):
@@ -401,8 +574,12 @@ def load_data(path: Path, default):
         return default
 
 
+
+
 def save_data(path: Path, payload):
     path.write_text(json.dumps(payload, indent=2))
+
+
 
 
 class LoginAttemptInput(BaseModel):
@@ -411,6 +588,8 @@ class LoginAttemptInput(BaseModel):
     success: bool
     reason: str = ""
     selected_role: str = ""
+
+
 
 
 @app.post("/auth/login-attempt")
@@ -433,11 +612,15 @@ def log_login_attempt(payload: LoginAttemptInput, request: Request):
     return {"message": "Login attempt logged"}
 
 
+
+
 @app.get("/admin/login-attempts")
 def admin_login_attempts(authorization: Optional[str] = Header(default=None)):
     _require_admin_uid(authorization)
     attempts = load_data(LOGIN_ATTEMPTS_FILE, DEFAULT_LOGIN_ATTEMPTS)
     return list(reversed(attempts))
+
+
 
 
 class AdminCreateUserInput(BaseModel):
@@ -450,6 +633,8 @@ class AdminCreateUserInput(BaseModel):
     college_domains: List[str] = []
 
 
+
+
 @app.post("/admin/create-user")
 def admin_create_user(
     payload: AdminCreateUserInput,
@@ -457,10 +642,12 @@ def admin_create_user(
 ):
     admin_uid = _require_admin_uid(authorization)
 
+
     role = payload.role.strip().lower()
     allowed_roles = {"student", "faculty", "canteen", "college", "admin"}
     if role not in allowed_roles:
         raise HTTPException(status_code=400, detail="Invalid role")
+
 
     email = payload.email.strip().lower()
     if not email:
@@ -469,10 +656,12 @@ def admin_create_user(
     if password_error:
         raise HTTPException(status_code=400, detail=password_error)
 
+
     try:
         created_user = firebase_auth.create_user(email=email, password=payload.password)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Unable to create user: {str(exc)}") from exc
+
 
     normalized_domains = []
     for domain in payload.college_domains:
@@ -480,17 +669,21 @@ def admin_create_user(
         if parsed and parsed not in normalized_domains:
             normalized_domains.append(parsed)
 
+
     email_domain = _email_domain(email)
     if role == "college" and email_domain and email_domain not in normalized_domains:
         normalized_domains.append(email_domain)
+
 
     college_name = payload.college_name.strip()
     if role == "college" and not college_name:
         college_name = payload.name.strip() or (email_domain or "College")
 
+
     college_key = ""
     if role in {"college", "student", "faculty", "canteen"}:
         college_key = _build_college_key(college_name, email, normalized_domains)
+
 
     user_doc = {
         "name": payload.name.strip(),
@@ -503,6 +696,7 @@ def admin_create_user(
         "isActive": True,
     }
 
+
     if college_name:
         user_doc["collegeName"] = college_name
     if normalized_domains:
@@ -510,7 +704,9 @@ def admin_create_user(
     if college_key:
         user_doc["collegeKey"] = college_key
 
+
     db.collection("users").document(created_user.uid).set(user_doc, merge=True)
+
 
     return {
         "message": "User created",
@@ -518,6 +714,8 @@ def admin_create_user(
         "email": email,
         "role": role,
     }
+
+
 
 
 @app.get("/admin/menu-pending")
@@ -539,8 +737,12 @@ def admin_menu_pending():
     return pending_items
 
 
+
+
 class MenuAction(BaseModel):
     id: str
+
+
 
 
 @app.post("/admin/menu-approve")
@@ -550,7 +752,9 @@ def admin_menu_approve(payload: MenuAction):
     if not pending_doc.exists:
         raise HTTPException(status_code=404, detail="Menu item not found")
 
+
     pending_data = pending_doc.to_dict() or {}
+
 
     db.collection("menu").document(payload.id).set({
         "name": pending_data.get("name", ""),
@@ -561,9 +765,12 @@ def admin_menu_approve(payload: MenuAction):
         "approvedAt": datetime.now(timezone.utc).isoformat(),
     }, merge=True)
 
+
     # Move flow: remove from pending after approval.
     pending_ref.delete()
     return {"message": "Menu item approved", "id": payload.id}
+
+
 
 
 @app.post("/admin/menu-reject")
@@ -573,17 +780,23 @@ def admin_menu_reject(payload: MenuAction):
     if not pending_doc.exists:
         raise HTTPException(status_code=404, detail="Menu item not found")
 
+
     pending_ref.set({
         "status": "rejected",
         "rejectedAt": datetime.now(timezone.utc).isoformat(),
     }, merge=True)
 
+
     return {"message": "Menu item rejected", "id": payload.id}
+
+
 
 
 class ExchangeStatus(BaseModel):
     id: str
     status: str
+
+
 
 
 class CollegeSignupRequestInput(BaseModel):
@@ -595,6 +808,8 @@ class CollegeSignupRequestInput(BaseModel):
     allowed_domains: List[str] = []
 
 
+
+
 class CollegeFoodListingInput(BaseModel):
     food_item: str
     quantity: int
@@ -603,10 +818,14 @@ class CollegeFoodListingInput(BaseModel):
     notes: str = ""
 
 
+
+
 class CollegeFoodRequestInput(BaseModel):
     listing_id: str
     quantity: int
     notes: str = ""
+
+
 
 
 def _user_display_name(user_data: Dict) -> str:
@@ -619,11 +838,15 @@ def _user_display_name(user_data: Dict) -> str:
     )
 
 
+
+
 def _serialize_docs(docs) -> List[Dict]:
     rows = []
     for doc in docs:
         rows.append({"id": doc.id, **(doc.to_dict() or {})})
     return rows
+
+
 
 
 @app.post("/college/signup-request")
@@ -636,17 +859,21 @@ def create_college_signup_request(payload: CollegeSignupRequestInput):
     if not email:
         raise HTTPException(status_code=400, detail="Email is required")
 
+
     requested_domains = []
     for domain in payload.allowed_domains:
         parsed = _normalize_domain(str(domain))
         if parsed and parsed not in requested_domains:
             requested_domains.append(parsed)
 
+
     email_domain = _email_domain(email)
     if email_domain and email_domain not in requested_domains:
         requested_domains.append(email_domain)
 
+
     college_key = _build_college_key(payload.college_name, email, requested_domains)
+
 
     existing = list(
         db.collection("college_signup_requests")
@@ -657,6 +884,7 @@ def create_college_signup_request(payload: CollegeSignupRequestInput):
     )
     if existing:
         raise HTTPException(status_code=400, detail="A signup request is already pending for this email")
+
 
     doc_ref = db.collection("college_signup_requests").document()
     doc_ref.set({
@@ -672,6 +900,8 @@ def create_college_signup_request(payload: CollegeSignupRequestInput):
         "createdAt": datetime.now(timezone.utc).isoformat(),
     }, merge=True)
     return {"message": "College signup request submitted", "id": doc_ref.id}
+
+
 
 
 @app.get("/admin/exchange-requests")
@@ -690,6 +920,8 @@ def admin_exchange_requests(authorization: Optional[str] = Header(default=None))
     }
 
 
+
+
 @app.post("/admin/exchange-status")
 def admin_exchange_status(
     payload: ExchangeStatus,
@@ -700,15 +932,18 @@ def admin_exchange_status(
     if payload.status not in valid:
         raise HTTPException(status_code=400, detail="Invalid status")
 
+
     signup_ref = db.collection("college_signup_requests").document(payload.id)
     signup_doc = signup_ref.get()
     if signup_doc.exists:
         signup_data = signup_doc.to_dict() or {}
         email = str(signup_data.get("email", "")).strip().lower()
 
+
         if payload.status == "approved":
             if not email:
                 raise HTTPException(status_code=400, detail="Signup request is missing email")
+
 
             college_name = str(signup_data.get("college_name", "")).strip()
             allowed_domains = signup_data.get("allowed_domains")
@@ -722,33 +957,54 @@ def admin_exchange_status(
             if email_domain and email_domain not in normalized_domains:
                 normalized_domains.append(email_domain)
 
+
             college_key = _build_college_key(college_name, email, normalized_domains)
             if not college_key:
                 college_key = _normalize_college_key(email_domain or "college")
 
-            default_password = os.getenv("COLLEGE_DEFAULT_PASSWORD", "College@123")
-            default_password_error = _validate_strong_password(default_password)
-            if default_password_error:
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"Invalid COLLEGE_DEFAULT_PASSWORD: {default_password_error}",
-                )
+
             created_new_auth_user = False
             auth_user = None
-            temporary_password = ""
+
 
             try:
                 auth_user = firebase_auth.get_user_by_email(email)
             except Exception:
                 try:
-                    auth_user = firebase_auth.create_user(email=email, password=default_password)
+                    auth_user = firebase_auth.create_user(
+                        email=email,
+                        password=_generate_strong_password(),
+                    )
                     created_new_auth_user = True
-                    temporary_password = default_password
                 except Exception as exc:
                     raise HTTPException(
                         status_code=400,
                         detail=f"Unable to provision college auth account: {str(exc)}",
                     ) from exc
+
+
+            reset_link = ""
+            try:
+                reset_link = firebase_auth.generate_password_reset_link(email)
+                _send_password_setup_email(email, college_name, reset_link)
+            except HTTPException:
+                if created_new_auth_user and auth_user is not None:
+                    try:
+                        firebase_auth.delete_user(auth_user.uid)
+                    except Exception:
+                        pass
+                raise
+            except Exception as exc:
+                if created_new_auth_user and auth_user is not None:
+                    try:
+                        firebase_auth.delete_user(auth_user.uid)
+                    except Exception:
+                        pass
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Unable to create password setup link: {str(exc)}",
+                ) from exc
+
 
             db.collection("users").document(auth_user.uid).set(
                 {
@@ -768,6 +1024,7 @@ def admin_exchange_status(
                 merge=True,
             )
 
+
         signup_ref.set({
             "status": payload.status,
             "reviewedAt": datetime.now(timezone.utc).isoformat(),
@@ -777,9 +1034,9 @@ def admin_exchange_status(
         if payload.status == "approved":
             response["provisioned_email"] = email
             response["auth_user_created"] = created_new_auth_user
-            if temporary_password:
-                response["temporary_password"] = temporary_password
+            response["password_setup_email_sent"] = True
         return response
+
 
     listing_ref = db.collection("college_food_listings").document(payload.id)
     listing_doc = listing_ref.get()
@@ -794,6 +1051,7 @@ def admin_exchange_status(
         listing_ref.set(update, merge=True)
         return {"message": "Listing status updated", "id": payload.id, "status": payload.status}
 
+
     request_ref = db.collection("college_food_requests").document(payload.id)
     request_doc = request_ref.get()
     if request_doc.exists:
@@ -804,9 +1062,11 @@ def admin_exchange_status(
         if not listing_doc.exists:
             raise HTTPException(status_code=404, detail="Listing for request not found")
 
+
         listing_data = listing_doc.to_dict() or {}
         requested_quantity = int(request_data.get("quantity", 0) or 0)
         remaining_quantity = int(listing_data.get("remaining_quantity", listing_data.get("quantity", 0)) or 0)
+
 
         if payload.status == "approved":
             if remaining_quantity < requested_quantity:
@@ -818,6 +1078,7 @@ def admin_exchange_status(
                 "lastRequestApprovedAt": datetime.now(timezone.utc).isoformat(),
             }, merge=True)
 
+
         request_ref.set({
             "status": payload.status,
             "reviewedAt": datetime.now(timezone.utc).isoformat(),
@@ -825,7 +1086,10 @@ def admin_exchange_status(
         }, merge=True)
         return {"message": "Food request updated", "id": payload.id, "status": payload.status}
 
+
     raise HTTPException(status_code=404, detail="Exchange request not found")
+
+
 
 
 @app.post("/college/listings")
@@ -839,6 +1103,7 @@ def create_college_food_listing(
         raise HTTPException(status_code=400, detail="Food item is required")
     if payload.quantity <= 0:
         raise HTTPException(status_code=400, detail="Quantity must be greater than zero")
+
 
     listing_ref = db.collection("college_food_listings").document()
     listing_ref.set({
@@ -858,6 +1123,8 @@ def create_college_food_listing(
     return {"message": "Listing submitted for admin approval", "id": listing_ref.id}
 
 
+
+
 @app.get("/college/listings/mine")
 def get_my_college_listings(authorization: Optional[str] = Header(default=None)):
     uid, user_data = _require_role_uid(authorization, {"college"})
@@ -869,6 +1136,8 @@ def get_my_college_listings(authorization: Optional[str] = Header(default=None))
         if data.get("created_by") == uid or data.get("college_key") == college_key:
             rows.append({"id": doc.id, **data})
     return rows
+
+
 
 
 @app.get("/college/listings/available")
@@ -894,6 +1163,8 @@ def get_available_college_listings(authorization: Optional[str] = Header(default
     return available
 
 
+
+
 @app.post("/college/food-requests")
 def create_college_food_request(
     payload: CollegeFoodRequestInput,
@@ -904,25 +1175,31 @@ def create_college_food_request(
     if payload.quantity <= 0:
         raise HTTPException(status_code=400, detail="Quantity must be greater than zero")
 
+
     listing_ref = db.collection("college_food_listings").document(payload.listing_id)
     listing_doc = listing_ref.get()
     if not listing_doc.exists:
         raise HTTPException(status_code=404, detail="Listing not found")
 
+
     listing_data = listing_doc.to_dict() or {}
     if listing_data.get("created_by") == uid:
         raise HTTPException(status_code=400, detail="You cannot request your own listing")
+
 
     from_college_key = str(listing_data.get("college_key", "")).strip()
     if from_college_key and from_college_key == to_college_key:
         raise HTTPException(status_code=400, detail="You cannot request your own college listing")
 
+
     if listing_data.get("status") != "approved":
         raise HTTPException(status_code=400, detail="Listing is not approved yet")
+
 
     remaining_quantity = int(listing_data.get("remaining_quantity", 0) or 0)
     if payload.quantity > remaining_quantity:
         raise HTTPException(status_code=400, detail="Requested quantity exceeds available quantity")
+
 
     request_ref = db.collection("college_food_requests").document()
     request_ref.set({
@@ -943,6 +1220,8 @@ def create_college_food_request(
     return {"message": "Food request submitted", "id": request_ref.id}
 
 
+
+
 @app.get("/college/food-requests")
 def get_college_food_requests(authorization: Optional[str] = Header(default=None)):
     uid, user_data = _require_role_uid(authorization, {"college"})
@@ -961,9 +1240,12 @@ def get_college_food_requests(authorization: Optional[str] = Header(default=None
     return rows
 
 
+
+
 # ==========================================
 # STUDENT & CANTEEN PUBLIC API
 # ==========================================
+
 
 @app.get("/menu")
 def get_menu():
@@ -980,17 +1262,23 @@ def get_menu():
             "approved": data.get("approved", True),
         })
 
+
     if menu_items:
         return menu_items
 
+
     # Fallback for demo setup where menu has not been approved yet.
     return load_data(MENU_MASTER, DEFAULT_MENU)
+
+
 
 
 class CreateMenuItem(BaseModel):
     name: str
     price: int
     category: str = "general"
+
+
 
 
 @app.post("/menu")
@@ -1005,10 +1293,13 @@ def create_menu_item(item: CreateMenuItem):
         "createdAt": datetime.now(timezone.utc).isoformat(),
     }, merge=True)
 
+
     return {
         "message": "Menu item submitted for approval",
         "id": pending_ref.id,
     }
+
+
 
 
 class OrderRequest(BaseModel):
@@ -1016,6 +1307,8 @@ class OrderRequest(BaseModel):
     item: str
     price: int
     quantity: int
+
+
 
 
 @app.post("/order")
@@ -1033,10 +1326,14 @@ def place_order(order: OrderRequest):
     return {"message": "Order placed"}
 
 
+
+
 class AttendanceRequest(BaseModel):
     uid: str
     date: str
     time: str
+
+
 
 
 @app.post("/attendance")
@@ -1055,6 +1352,8 @@ def mark_attendance(att: AttendanceRequest):
     return {"message": "Attendance marked"}
 
 
+
+
 class FacultyOrderRequest(BaseModel):
     faculty_id: str
     item_name: str
@@ -1062,17 +1361,25 @@ class FacultyOrderRequest(BaseModel):
     quantity: int
 
 
+
+
 class FacultyPayRequest(BaseModel):
     faculty_id: str
     order_ids: List[str] = []
+
+
 
 
 class RegisterFcmTokenRequest(BaseModel):
     token: str
 
 
+
+
 class FacultyReminderRequest(BaseModel):
     period: str = "weekly"
+
+
 
 
 def _period_days(period: str) -> int:
@@ -1084,14 +1391,18 @@ def _period_days(period: str) -> int:
     raise HTTPException(status_code=400, detail="Invalid period. Use weekly or monthly")
 
 
+
+
 def _collect_faculty_pending(days: int) -> Dict[str, Dict]:
     now = datetime.now(timezone.utc)
     docs = db.collection("faculty_orders").where("payment_status", "==", "pending").stream()
+
 
     by_faculty: Dict[str, Dict] = {}
     for doc in docs:
         data = doc.to_dict() or {}
         created_raw = data.get("createdAt")
+
 
         include = True
         if created_raw:
@@ -1101,18 +1412,24 @@ def _collect_faculty_pending(days: int) -> Dict[str, Dict]:
             except Exception:
                 include = True
 
+
         if not include:
             continue
+
 
         faculty_id = data.get("faculty_id")
         if not faculty_id:
             continue
 
+
         entry = by_faculty.setdefault(faculty_id, {"total": 0, "order_ids": []})
         entry["total"] += int(data.get("total_amount", 0) or 0)
         entry["order_ids"].append(doc.id)
 
+
     return by_faculty
+
+
 
 
 @app.post("/notifications/register-token")
@@ -1125,11 +1442,14 @@ def register_fcm_token(
     if not token:
         raise HTTPException(status_code=400, detail="Token is required")
 
+
     db.collection("users").document(uid).set({
         "fcmToken": token,
         "fcmUpdatedAt": datetime.now(timezone.utc).isoformat(),
     }, merge=True)
     return {"message": "FCM token saved", "uid": uid}
+
+
 
 
 @app.post("/faculty/orders")
@@ -1139,8 +1459,10 @@ def create_faculty_order(payload: FacultyOrderRequest):
     if payload.unit_price < 0:
         raise HTTPException(status_code=400, detail="Price cannot be negative")
 
+
     total_amount = payload.unit_price * payload.quantity
     now = datetime.now(timezone.utc)
+
 
     doc_ref = db.collection("faculty_orders").document()
     doc_ref.set({
@@ -1159,6 +1481,7 @@ def create_faculty_order(payload: FacultyOrderRequest):
         "createdAt": now.isoformat(),
     }, merge=True)
 
+
     return {
         "message": "Faculty order created with pending payment",
         "order_id": doc_ref.id,
@@ -1167,11 +1490,14 @@ def create_faculty_order(payload: FacultyOrderRequest):
     }
 
 
+
+
 @app.get("/faculty/orders/{faculty_id}")
 def get_faculty_orders(faculty_id: str, status: str = "pending"):
     query = db.collection("faculty_orders").where("faculty_id", "==", faculty_id)
     if status:
         query = query.where("payment_status", "==", status)
+
 
     docs = query.stream()
     orders = []
@@ -1190,11 +1516,14 @@ def get_faculty_orders(faculty_id: str, status: str = "pending"):
             total_pending += row["total_amount"]
         orders.append(row)
 
+
     return {
         "faculty_id": faculty_id,
         "orders": orders,
         "total_pending": total_pending,
     }
+
+
 
 
 @app.post("/faculty/orders/pay")
@@ -1208,8 +1537,10 @@ def pay_faculty_orders(payload: FacultyPayRequest):
             .stream()
         refs = [db.collection("faculty_orders").document(doc.id) for doc in docs]
 
+
     if not refs:
         return {"message": "No pending faculty orders to settle", "updated": 0}
+
 
     now = datetime.now(timezone.utc).isoformat()
     updated = 0
@@ -1223,7 +1554,10 @@ def pay_faculty_orders(payload: FacultyPayRequest):
         ref.set({"payment_status": "paid", "paidAt": now}, merge=True)
         updated += 1
 
+
     return {"message": "Faculty payment settled", "updated": updated}
+
+
 
 
 @app.get("/faculty/pending-summary/{faculty_id}")
@@ -1239,6 +1573,8 @@ def faculty_pending_summary(faculty_id: str, period: str = "weekly"):
     }
 
 
+
+
 @app.post("/admin/faculty-payment-reminders")
 def send_faculty_payment_reminders(
     payload: FacultyReminderRequest,
@@ -1248,14 +1584,17 @@ def send_faculty_payment_reminders(
     days = _period_days(payload.period)
     pending = _collect_faculty_pending(days)
 
+
     sent = 0
     skipped = 0
     details = []
+
 
     for faculty_id, data in pending.items():
         total = int(data.get("total", 0))
         if total <= 0:
             continue
+
 
         user_doc = db.collection("users").document(faculty_id).get()
         user_data = user_doc.to_dict() if user_doc.exists else {}
@@ -1268,6 +1607,7 @@ def send_faculty_payment_reminders(
                 "total_pending": total,
             })
             continue
+
 
         body = f"You have ₹{total} pending canteen payment this {payload.period}."
         message = firebase_messaging.Message(
@@ -1283,6 +1623,7 @@ def send_faculty_payment_reminders(
                 "total_pending": str(total),
             },
         )
+
 
         try:
             firebase_messaging.send(message)
@@ -1300,6 +1641,7 @@ def send_faculty_payment_reminders(
                 "total_pending": total,
             })
 
+
     return {
         "message": "Faculty payment reminders processed",
         "period": payload.period,
@@ -1309,14 +1651,20 @@ def send_faculty_payment_reminders(
     }
 
 
+
+
 # ==========================================
 # RETRAIN MODEL
 # ==========================================
 
+
 @app.post("/retrain")
 def retrain():
+
 
     subprocess.run(["python", "firebase_to_dataset.py"])
     subprocess.run(["python", "train.py"])
 
+
     return {"message": "Model retrained successfully"}
+
