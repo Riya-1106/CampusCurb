@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../../services/auth_service.dart';
 import '../auth/login_screen.dart';
 import 'menu_approval_screen.dart';
@@ -7,226 +8,676 @@ import 'admin_waste_monitoring_screen.dart';
 import 'food_exchange_requests_screen.dart';
 import 'admin_analytics_screen.dart';
 import 'login_attempts_screen.dart';
-import '../shared/profile_screen.dart';
 
-class AdminDashboard extends StatelessWidget {
+class AdminDashboard extends StatefulWidget {
   const AdminDashboard({super.key});
 
-  Widget dashboardCard(
-    BuildContext context,
-    String title,
-    IconData icon,
-    Widget screen,
-    Color color,
-  ) {
-    return GestureDetector(
-      onTap: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (context) => screen),
-        );
-      },
-      child: Card(
-        elevation: 8,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        child: Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(20),
-            gradient: LinearGradient(
-              colors: [
-                color.withValues(alpha: 0.1),
-                color.withValues(alpha: 0.2),
-              ],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-          ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icon, size: 40, color: color),
-              const SizedBox(height: 10),
-              Text(
-                title,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black87,
+  @override
+  State<AdminDashboard> createState() => _AdminDashboardState();
+}
+
+class _AdminDashboardState extends State<AdminDashboard> with TickerProviderStateMixin {
+  late AnimationController _animationController;
+  late Animation<double> _fadeAnimation;
+  late Animation<Offset> _slideAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _animationController = AnimationController(
+      duration: const Duration(milliseconds: 1200),
+      vsync: this,
+    );
+    
+    _fadeAnimation = Tween<double>(
+      begin: 0.0,
+      end: 1.0,
+    ).animate(CurvedAnimation(
+      parent: _animationController,
+      curve: Curves.easeInOut,
+    ));
+    
+    _slideAnimation = Tween<Offset>(
+      begin: const Offset(0, 0.3),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(
+      parent: _animationController,
+      curve: Curves.easeOutCubic,
+    ));
+    
+    _animationController.forward();
+  }
+
+  @override
+  void dispose() {
+    _animationController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isWide = MediaQuery.of(context).size.width > 800;
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFF8F9FA),
+      body: AnimatedBuilder(
+        animation: _animationController,
+        builder: (context, child) {
+          return FadeTransition(
+            opacity: _fadeAnimation,
+            child: SlideTransition(
+              position: _slideAnimation,
+              child: Container(
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [Color(0xFFF8F9FA), Color(0xFFE9ECEF)],
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                  ),
+                ),
+                child: SafeArea(
+                  child: Column(
+                    children: [
+                      _buildModernHeader(context),
+                      Expanded(
+                        child: SingleChildScrollView(
+                          padding: const EdgeInsets.all(24),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _buildQuickActionsSection(),
+                              const SizedBox(height: 32),
+                              _buildStatsOverview(),
+                              const SizedBox(height: 32),
+                              _buildManagementTools(isWide),
+                              const SizedBox(height: 40),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  // Modern Header Section
+  Widget _buildModernHeader(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [Color(0xFF4F46E5), Color(0xFF7C3AED)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF4F46E5).withOpacity(0.3),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: const Icon(
+              Icons.dashboard_rounded,
+              color: Colors.white,
+              size: 28,
+            ),
+          ),
+          const SizedBox(width: 20),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  "Admin Dashboard",
+                  style: TextStyle(
+                    fontSize: 28,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF1F2937),
+                    letterSpacing: -0.5,
+                  ),
+                ),
+                Text(
+                  "CampusCurb Management System",
+                  style: TextStyle(
+                    fontSize: 16,
+                    color: Colors.grey[600],
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Container(
+            decoration: BoxDecoration(
+              color: const Color(0xFFF3F4F6),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: const Color(0xFFE5E7EB),
+                width: 1,
+              ),
+            ),
+            child: IconButton(
+              icon: const Icon(
+                Icons.logout_rounded, 
+                color: Color(0xFF6B7280),
+                size: 22,
+              ),
+              onPressed: () async {
+                await AuthService().logout();
+                Navigator.pushReplacement(
+                    context,
+                    MaterialPageRoute(
+                        builder: (_) => const LoginScreen()));
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Quick Actions Section
+  Widget _buildQuickActionsSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: const Color(0xFF4F46E5).withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(
+                Icons.flash_on_rounded,
+                color: Color(0xFF4F46E5),
+                size: 20,
+              ),
+            ),
+            const SizedBox(width: 12),
+            const Text(
+              "Quick Actions",
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF1F2937),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 20),
+        SizedBox(
+          height: 130,
+          child: ListView(
+            scrollDirection: Axis.horizontal,
+            children: [
+              _buildModernQuickAction("Add User", Icons.person_add_rounded, const Color(0xFF10B981)),
+              _buildModernQuickAction("New Menu", Icons.add_circle_rounded, const Color(0xFF3B82F6)),
+              _buildModernQuickAction("View Reports", Icons.assessment_rounded, const Color(0xFF8B5CF6)),
+              _buildModernQuickAction("Settings", Icons.settings_rounded, const Color(0xFFF59E0B)),
+              _buildModernQuickAction("Help", Icons.help_rounded, const Color(0xFFEF4444)),
             ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  // Stats Overview Section
+  Widget _buildStatsOverview() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: const Color(0xFF4F46E5).withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(
+                Icons.analytics_rounded,
+                color: Color(0xFF4F46E5),
+                size: 20,
+              ),
+            ),
+            const SizedBox(width: 12),
+            const Text(
+              "Dashboard Overview",
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF1F2937),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 20),
+        Row(
+          children: [
+            Expanded(child: _buildModernStatCard("Total Users", "1,234", Icons.people_rounded, const Color(0xFF10B981))),
+            const SizedBox(width: 16),
+            Expanded(child: _buildModernStatCard("Pending Menus", "23", Icons.restaurant_rounded, const Color(0xFF3B82F6))),
+          ],
+        ),
+        const SizedBox(height: 16),
+        Row(
+          children: [
+            Expanded(child: _buildModernStatCard("Active Orders", "89", Icons.shopping_cart_rounded, const Color(0xFF8B5CF6))),
+            const SizedBox(width: 16),
+            Expanded(child: _buildModernStatCard("Waste Tracked", "42 kg", Icons.delete_rounded, const Color(0xFFF59E0B))),
+          ],
+        ),
+      ],
+    );
+  }
+
+  // Management Tools Section
+  Widget _buildManagementTools(bool isWide) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: const Color(0xFF4F46E5).withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(
+                Icons.apps_rounded,
+                color: Color(0xFF4F46E5),
+                size: 20,
+              ),
+            ),
+            const SizedBox(width: 12),
+            const Text(
+              "Management Tools",
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF1F2937),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 20),
+        GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          padding: EdgeInsets.zero,
+          itemCount: 6,
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: isWide ? 3 : 2,
+            crossAxisSpacing: 16,
+            mainAxisSpacing: 16,
+            childAspectRatio: isWide ? 1.2 : 1.0,
+          ),
+          itemBuilder: (context, index) {
+            final items = [
+              {
+                "title": "User Management",
+                "subtitle": "Manage all users",
+                "icon": Icons.group_rounded,
+                "color": const Color(0xFF10B981),
+                "screen": const UserManagementScreen()
+              },
+              {
+                "title": "Menu Approvals",
+                "subtitle": "Review & approve",
+                "icon": Icons.restaurant_rounded,
+                "color": const Color(0xFF3B82F6),
+                "screen": const MenuApprovalScreen()
+              },
+              {
+                "title": "Analytics",
+                "subtitle": "View insights",
+                "icon": Icons.analytics_rounded,
+                "color": const Color(0xFF8B5CF6),
+                "screen": const AdminAnalyticsScreen()
+              },
+              {
+                "title": "Food Exchange",
+                "subtitle": "Manage exchanges",
+                "icon": Icons.swap_horiz_rounded,
+                "color": const Color(0xFF4F46E5),
+                "screen": const FoodExchangeRequestsScreen()
+              },
+              {
+                "title": "Waste Tracking",
+                "subtitle": "Monitor waste",
+                "icon": Icons.delete_rounded,
+                "color": const Color(0xFFF59E0B),
+                "screen": const AdminWasteMonitoringScreen()
+              },
+              {
+                "title": "Security Logs",
+                "subtitle": "Login activity",
+                "icon": Icons.security_rounded,
+                "color": const Color(0xFF6B7280),
+                "screen": const LoginAttemptsScreen()
+              },
+            ];
+
+            final item = items[index];
+            return _buildModernManagementCard(
+              context,
+              item["title"] as String,
+              item["subtitle"] as String,
+              item["icon"] as IconData,
+              item["color"] as Color,
+              item["screen"] as Widget,
+            );
+          },
+        ),
+      ],
+    );
+  }
+
+  // Modern Quick Action Card
+  Widget _buildModernQuickAction(String title, IconData icon, Color color) {
+    return Container(
+      width: 100,
+      margin: const EdgeInsets.only(right: 16),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () {},
+          borderRadius: BorderRadius.circular(16),
+          child: Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: color.withOpacity(0.2),
+                width: 1,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.04),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: color.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(
+                    icon,
+                    color: color,
+                    size: 22,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Flexible(
+                  child: Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF374151),
+                    ),
+                    textAlign: TextAlign.center,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.grey.shade100,
-      appBar: AppBar(
-        title: const Text('Admin Dashboard'),
-        centerTitle: true,
-        backgroundColor: const Color(0xFF4A90E2),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.notifications_none),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const LoginAttemptsScreen()),
-              );
-            },
+  // Modern Stat Card
+  Widget _buildModernStatCard(String title, String value, IconData icon, Color color) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: const Color(0xFFE5E7EB),
+          width: 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
           ),
-          PopupMenuButton<String>(
-            icon: const CircleAvatar(
-              radius: 16,
-              child: Icon(Icons.person, size: 18),
-            ),
-            onSelected: (value) async {
-              if (value == 'profile') {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const ProfileScreen()),
-                );
-              }
-
-              if (value == 'logout') {
-                final navigator = Navigator.of(context);
-                await AuthService().logout();
-                navigator.pushAndRemoveUntil(
-                  MaterialPageRoute(builder: (context) => const LoginScreen()),
-                  (route) => false,
-                );
-              }
-            },
-            itemBuilder: (context) => [
-              const PopupMenuItem(
-                value: 'profile',
-                child: Row(
-                  children: [
-                    Icon(Icons.person),
-                    SizedBox(width: 10),
-                    Text('Profile'),
-                  ],
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(
+                  icon,
+                  color: color,
+                  size: 20,
                 ),
               ),
-              const PopupMenuItem(
-                value: 'logout',
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
                 child: Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.logout),
-                    SizedBox(width: 10),
-                    Text('Logout'),
+                    Icon(
+                      Icons.trending_up_rounded,
+                      color: color,
+                      size: 12,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      "+12%",
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: color,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                   ],
                 ),
               ),
             ],
           ),
+          const SizedBox(height: 16),
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 14,
+              color: Color(0xFF6B7280),
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            value,
+            style: const TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.w800,
+              color: Color(0xFF1F2937),
+            ),
+          ),
         ],
       ),
-      body: SafeArea(
-        child: SingleChildScrollView(
+    );
+  }
+
+  // Modern Management Card
+  Widget _buildModernManagementCard(
+    BuildContext context,
+    String title,
+    String subtitle,
+    IconData icon,
+    Color color,
+    Widget screen,
+  ) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => screen),
+          );
+        },
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: const Color(0xFFE5E7EB),
+              width: 1,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.04),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(
-                height: 150,
-                width: double.infinity,
-                decoration: const BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [Color(0xFF4A90E2), Color(0xFF357ABD)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
+              Expanded(
+                flex: 3,
+                child: Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: color.withOpacity(0.05),
+                    borderRadius: const BorderRadius.vertical(
+                      top: Radius.circular(16),
+                    ),
                   ),
-                  borderRadius: BorderRadius.only(
-                    bottomLeft: Radius.circular(30),
-                    bottomRight: Radius.circular(30),
-                  ),
-                ),
-                child: const Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
+                  child: Stack(
                     children: [
-                      Icon(
-                        Icons.admin_panel_settings,
-                        size: 40,
-                        color: Colors.white,
-                      ),
-                      SizedBox(height: 10),
-                      Text(
-                        'Admin Control Center',
-                        style: TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
+                      Center(
+                        child: Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(16),
+                            boxShadow: [
+                              BoxShadow(
+                                color: color.withOpacity(0.2),
+                                blurRadius: 10,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
+                          ),
+                          child: Icon(
+                            icon,
+                            color: color,
+                            size: 32,
+                          ),
                         ),
                       ),
-                      SizedBox(height: 5),
-                      Text(
-                        'Manage users, menus, waste and reports',
-                        style: TextStyle(fontSize: 14, color: Colors.white70),
+                      Positioned(
+                        top: 8,
+                        right: 8,
+                        child: Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(8),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.1),
+                                blurRadius: 4,
+                                offset: const Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          child: Icon(
+                            Icons.arrow_forward_rounded,
+                            color: color,
+                            size: 16,
+                          ),
+                        ),
                       ),
                     ],
                   ),
                 ),
               ),
-              const SizedBox(height: 20),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: GridView.count(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  crossAxisCount: 2,
-                  crossAxisSpacing: 12,
-                  mainAxisSpacing: 12,
-                  childAspectRatio: 1.0,
-                  children: [
-                    dashboardCard(
-                      context,
-                      'User Management',
-                      Icons.group,
-                      const UserManagementScreen(),
-                      Colors.deepPurple,
-                    ),
-                    dashboardCard(
-                      context,
-                      'Menu Approvals',
-                      Icons.restaurant_menu,
-                      const MenuApprovalScreen(),
-                      Colors.orange,
-                    ),
-                    dashboardCard(
-                      context,
-                      'System Analytics',
-                      Icons.analytics,
-                      const AdminAnalyticsScreen(),
-                      Colors.teal,
-                    ),
-                    dashboardCard(
-                      context,
-                      'College Exchange',
-                      Icons.swap_horiz,
-                      const FoodExchangeRequestsScreen(),
-                      Colors.blue,
-                    ),
-                    dashboardCard(
-                      context,
-                      'Waste Monitoring',
-                      Icons.delete_outline,
-                      const AdminWasteMonitoringScreen(),
-                      Colors.green,
-                    ),
-                    dashboardCard(
-                      context,
-                      'Login Security Logs',
-                      Icons.security,
-                      const LoginAttemptsScreen(),
-                      Colors.red,
-                    ),
-                  ],
+              Expanded(
+                flex: 2,
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        title,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF1F2937),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        subtitle,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: Color(0xFF6B7280),
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ],
