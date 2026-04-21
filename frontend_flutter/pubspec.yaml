@@ -41,6 +41,7 @@ dependencies:
   google_sign_in: any
   provider: any
   http: ^0.13.6
+  shared_preferences: any
 
 dev_dependencies:
   flutter_test:

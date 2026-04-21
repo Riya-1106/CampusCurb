@@ -3,7 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../services/auth_service.dart';
 import '../../services/security_audit_service.dart';
-import '../student/student_dashboard.dart';
+import '../student/student_shell.dart';
 import '../canteen/canteen_dashboard.dart';
 import '../faculty/faculty_dashboard.dart';
 import '../admin/admin_dashboard.dart';
@@ -64,7 +64,7 @@ class _LoginScreenState extends State<LoginScreen> {
     if (role == 'student') {
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (_) => const StudentDashboard()),
+        MaterialPageRoute(builder: (_) => const StudentShell()),
       );
     } else if (role == 'canteen') {
       Navigator.pushReplacement(

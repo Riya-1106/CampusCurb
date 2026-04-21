@@ -1,7 +1,7 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+
 import '../../services/campus_service.dart';
 
 class AttendanceScreen extends StatefulWidget {
@@ -11,139 +11,210 @@ class AttendanceScreen extends StatefulWidget {
   State<AttendanceScreen> createState() => _AttendanceScreenState();
 }
 
-class _AttendanceScreenState extends State<AttendanceScreen> with TickerProviderStateMixin {
+class _AttendanceScreenState extends State<AttendanceScreen> {
   final CampusService _service = CampusService();
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  
-  late AnimationController _animationController;
-  late Animation<double> _fadeAnimation;
-  late Animation<Offset> _slideAnimation;
-  
+
+  DateTime _visibleMonth = DateTime(DateTime.now().year, DateTime.now().month);
+  DateTime? _selectedDate;
+
+  bool _isLoading = true;
   bool _isMarking = false;
   bool _hasMarkedToday = false;
-  List<Map<String, dynamic>> _attendanceHistory = [];
+  bool _isLocalMode = false;
+
   int _currentStreak = 0;
   int _monthlyAttendance = 0;
-  double _attendancePercentage = 0.0;
+  double _attendancePercentage = 0;
 
-  @override
-  void initState() {
-    super.initState();
-    _animationController = AnimationController(
-      duration: const Duration(milliseconds: 1000),
-      vsync: this,
-    );
-    
-    _fadeAnimation = Tween<double>(
-      begin: 0.0,
-      end: 1.0,
-    ).animate(CurvedAnimation(
-      parent: _animationController,
-      curve: Curves.easeInOut,
-    ));
-    
-    _slideAnimation = Tween<Offset>(
-      begin: const Offset(0, 0.3),
-      end: Offset.zero,
-    ).animate(CurvedAnimation(
-      parent: _animationController,
-      curve: Curves.easeOutCubic,
-    ));
-    
-    _animationController.forward();
-    _loadAttendanceData();
+  String? _errorMessage;
+  String? _noticeMessage;
+  List<Map<String, dynamic>> _attendanceHistory = [];
+
+  int _readInt(dynamic value, {int fallback = 0}) {
+    if (value is int) return value;
+    if (value is double) return value.round();
+    return int.tryParse(value?.toString() ?? '') ?? fallback;
   }
 
-  @override
-  void dispose() {
-    _animationController.dispose();
-    super.dispose();
+  double _readDouble(dynamic value, {double fallback = 0}) {
+    if (value is double) return value;
+    if (value is int) return value.toDouble();
+    return double.tryParse(value?.toString() ?? '') ?? fallback;
   }
 
-  Future<void> _loadAttendanceData() async {
+  String _todayKey() {
+    final now = DateTime.now();
+    return '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+  }
+
+  String _currentTime() {
+    final now = DateTime.now();
+    return '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+  }
+
+  String _formatDate(String rawDate) {
+    final parsed = DateTime.tryParse(rawDate);
+    if (parsed == null) return rawDate;
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    return '${parsed.day} ${months[parsed.month - 1]} ${parsed.year}';
+  }
+
+  String _dateKeyFromDate(DateTime date) {
+    return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+  }
+
+  bool _isSameDate(DateTime a, DateTime b) {
+    return a.year == b.year && a.month == b.month && a.day == b.day;
+  }
+
+  int _daysInMonth(DateTime month) {
+    return DateTime(month.year, month.month + 1, 0).day;
+  }
+
+  bool _isFutureDate(DateTime date) {
+    final today = DateTime.now();
+    final normalizedToday = DateTime(today.year, today.month, today.day);
+    final normalizedDate = DateTime(date.year, date.month, date.day);
+    return normalizedDate.isAfter(normalizedToday);
+  }
+
+  String _monthLabel(DateTime month) {
+    const months = [
+      'January',
+      'February',
+      'March',
+      'April',
+      'May',
+      'June',
+      'July',
+      'August',
+      'September',
+      'October',
+      'November',
+      'December',
+    ];
+    return '${months[month.month - 1]} ${month.year}';
+  }
+
+  Map<String, Map<String, dynamic>> get _attendanceByDate {
+    final map = <String, Map<String, dynamic>>{};
+    for (final record in _attendanceHistory) {
+      final normalizedDate = _normalizeRecordDate(record['date']);
+      if (normalizedDate == null || normalizedDate.isEmpty) continue;
+      map[normalizedDate] = record;
+    }
+    return map;
+  }
+
+  String? _normalizeRecordDate(dynamic value) {
+    final raw = value?.toString().trim() ?? '';
+    if (raw.isEmpty) return null;
+    final parsed = DateTime.tryParse(raw);
+    if (parsed != null) {
+      return _dateKeyFromDate(parsed);
+    }
+
+    final match = RegExp(r'^(\d{4})-(\d{1,2})-(\d{1,2})$').firstMatch(raw);
+    if (match == null) return raw;
+    final year = match.group(1)!;
+    final month = match.group(2)!.padLeft(2, '0');
+    final day = match.group(3)!.padLeft(2, '0');
+    return '$year-$month-$day';
+  }
+
+  Map<String, dynamic>? _recordForDate(DateTime date) {
+    return _attendanceByDate[_dateKeyFromDate(date)];
+  }
+
+  void _changeMonth(int delta) {
+    final nextMonth = DateTime(_visibleMonth.year, _visibleMonth.month + delta, 1);
+    final currentSelection = _selectedDate;
+    final selectedDay = currentSelection == null ? 1 : currentSelection.day;
+    final boundedDay = selectedDay.clamp(1, _daysInMonth(nextMonth));
+
+    setState(() {
+      _visibleMonth = nextMonth;
+      _selectedDate = DateTime(nextMonth.year, nextMonth.month, boundedDay);
+    });
+  }
+
+  void _selectDate(DateTime date) {
+    setState(() {
+      _selectedDate = date;
+    });
+    HapticFeedback.selectionClick();
+  }
+
+  Future<void> _loadAttendanceData({bool preferLocalOnly = false}) async {
     final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
+    if (user == null) {
+      setState(() {
+        _isLoading = false;
+        _errorMessage = 'Sign in again to use attendance.';
+      });
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+      _noticeMessage = null;
+    });
 
     try {
-      // Check if already marked today
-      final now = DateTime.now();
-      final today = "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
-      
-      final todayDoc = await _firestore
-          .collection('attendance')
-          .doc(user.uid)
-          .collection('records')
-          .doc(today)
-          .get();
-      
-      setState(() {
-        _hasMarkedToday = todayDoc.exists;
-      });
+      final payload = await _service.getAttendanceHistory(
+        uid: user.uid,
+        preferLocalOnly: preferLocalOnly,
+      );
+      final records = (payload['records'] as List<dynamic>? ?? const [])
+          .map((item) => Map<String, dynamic>.from(item as Map))
+          .toList();
 
-      // Load attendance history
-      final attendanceSnapshot = await _firestore
-          .collection('attendance')
-          .doc(user.uid)
-          .collection('records')
-          .orderBy('date', descending: true)
-          .limit(30)
-          .get();
-      
-      final history = attendanceSnapshot.docs.map((doc) => {
-        'date': doc.id,
-        'time': doc['time'] ?? '',
-        'markedAt': doc['markedAt']?.toDate() ?? DateTime.now(),
-      }).toList();
-      
-      // Calculate statistics
-      final totalDays = attendanceSnapshot.docs.length;
-      final currentMonth = DateTime.now().month;
-      final currentYear = DateTime.now().year;
-      
-      final monthlyRecords = attendanceSnapshot.docs.where((doc) {
-        final docDate = DateTime.parse(doc.id);
-        return docDate.month == currentMonth && docDate.year == currentYear;
-      }).length;
-      
-      // Calculate streak
-      int streak = 0;
-      final sortedDocs = attendanceSnapshot.docs.toList()
-        ..sort((a, b) => b.id.compareTo(a.id));
-      
-      for (int i = 0; i < sortedDocs.length; i++) {
-        final currentDate = DateTime.parse(sortedDocs[i].id);
-        final expectedDate = DateTime.now().subtract(Duration(days: i));
-        
-        if (currentDate.year == expectedDate.year &&
-            currentDate.month == expectedDate.month &&
-            currentDate.day == expectedDate.day) {
-          streak++;
-        } else {
-          break;
-        }
-      }
-      
+      if (!mounted) return;
       setState(() {
-        _attendanceHistory = history;
-        _currentStreak = streak;
-        _monthlyAttendance = monthlyRecords;
-        _attendancePercentage = totalDays > 0 ? (totalDays / 30) * 100 : 0.0;
+        _attendanceHistory = records;
+        _hasMarkedToday = payload['has_marked_today'] == true;
+        _currentStreak = _readInt(payload['current_streak']);
+        _monthlyAttendance = _readInt(payload['monthly_attendance']);
+        _attendancePercentage = _readDouble(payload['attendance_percentage']);
+        _isLocalMode = payload['is_local_fallback'] == true;
+        _noticeMessage = payload['notice']?.toString();
+        _isLoading = false;
       });
     } catch (e) {
-      print('Error loading attendance data: $e');
+      if (!mounted) return;
+      setState(() {
+        _attendanceHistory = [];
+        _currentStreak = 0;
+        _monthlyAttendance = 0;
+        _attendancePercentage = 0;
+        _isLocalMode = false;
+        _isLoading = false;
+        _errorMessage = e.toString().replaceFirst('Exception: ', '');
+      });
     }
   }
 
-  Future<void> markAttendance() async {
+  Future<void> _markAttendance() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
     if (_hasMarkedToday) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Attendance already marked for today!"),
-          backgroundColor: Colors.orange,
-        ),
+        const SnackBar(content: Text('Attendance already marked for today.')),
       );
       return;
     }
@@ -153,55 +224,43 @@ class _AttendanceScreenState extends State<AttendanceScreen> with TickerProvider
     });
 
     try {
-      final now = DateTime.now();
-      final today = "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
-      final time = "${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}";
+      final result = await _service.markAttendance(
+        uid: user.uid,
+        date: _todayKey(),
+        time: _currentTime(),
+      );
 
-      await _service.markAttendance(uid: user.uid, date: today, time: time);
-      
-      // Also store in Firestore for history
-      await _firestore
-          .collection('attendance')
-          .doc(user.uid)
-          .collection('records')
-          .doc(today)
-          .set({
-            'time': time,
-            'markedAt': FieldValue.serverTimestamp(),
-            'date': today,
-          });
-      
       if (!mounted) return;
-      
+      final pointsAwarded = _readInt(result['points_awarded']);
+      final totalPoints = _readInt(result['total_points']);
+      final isLocalFallback = result['is_local_fallback'] == true;
+      final notice = result['notice']?.toString();
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Row(
-            children: [
-              const Icon(Icons.check_circle, color: Colors.white),
-              const SizedBox(width: 8),
-              Text("Attendance marked at $time"),
-            ],
+          content: Text(
+            isLocalFallback
+                ? 'Attendance saved on this device. Rewards will sync when the live server is reachable.'
+                : pointsAwarded > 0
+                ? 'Attendance marked. +$pointsAwarded points, total $totalPoints.'
+                : 'Attendance marked successfully.',
           ),
-          backgroundColor: Colors.green,
-          duration: const Duration(seconds: 3),
         ),
       );
-      
-      // Reload data
-      await _loadAttendanceData();
-      
-      // Haptic feedback
       HapticFeedback.lightImpact();
+      if (notice != null && notice.isNotEmpty && mounted) {
+        setState(() {
+          _noticeMessage = notice;
+          _isLocalMode = isLocalFallback;
+        });
+      }
+      await _loadAttendanceData(preferLocalOnly: isLocalFallback);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Row(
-            children: [
-              const Icon(Icons.error, color: Colors.white),
-              const SizedBox(width: 8),
-              Text('Attendance failed: $e'),
-            ],
+          content: Text(
+            e.toString().replaceFirst('Exception: ', ''),
           ),
           backgroundColor: Colors.red,
         ),
@@ -216,618 +275,676 @@ class _AttendanceScreenState extends State<AttendanceScreen> with TickerProvider
   }
 
   @override
+  void initState() {
+    super.initState();
+    _loadAttendanceData();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FA),
-      body: AnimatedBuilder(
-        animation: _animationController,
-        builder: (context, child) {
-          return FadeTransition(
-            opacity: _fadeAnimation,
-            child: SlideTransition(
-              position: _slideAnimation,
-              child: CustomScrollView(
-                slivers: [
-                  _buildSliverAppBar(),
-                  SliverPadding(
-                    padding: const EdgeInsets.all(16),
-                    sliver: SliverList(
-                      delegate: SliverChildListDelegate([
-                        _buildAttendanceOverview(),
-                        const SizedBox(height: 24),
-                        _buildMarkAttendanceButton(),
-                        const SizedBox(height: 24),
-                        _buildAttendanceStats(),
-                        const SizedBox(height: 24),
-                        _buildAttendanceHistory(),
-                      ]),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          );
-        },
+      backgroundColor: const Color(0xFFF6F8FC),
+      appBar: AppBar(
+        title: const Text('Attendance'),
+        backgroundColor: Colors.white,
+        foregroundColor: const Color(0xFF0F172A),
+        elevation: 0,
+        actions: [
+          IconButton(
+            onPressed: _loadAttendanceData,
+            icon: const Icon(Icons.refresh_rounded),
+          ),
+        ],
       ),
-    );
-  }
-
-  Widget _buildSliverAppBar() {
-    return SliverAppBar(
-      expandedHeight: 200,
-      floating: false,
-      pinned: true,
-      backgroundColor: const Color(0xFF4F46E5),
-      flexibleSpace: FlexibleSpaceBar(
-        title: const Text(
-          "Attendance",
-          style: TextStyle(
-            fontWeight: FontWeight.w700,
-            color: Colors.white,
-          ),
-        ),
-        titlePadding: const EdgeInsets.only(left: 16, bottom: 16),
-        background: Container(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              colors: [Color(0xFF4F46E5), Color(0xFF7C3AED)],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-          ),
-          child: Stack(
-            children: [
-              Positioned(
-                top: 40,
-                right: 20,
-                child: Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: const Icon(
-                    Icons.calendar_today_rounded,
-                    color: Colors.white,
-                    size: 40,
-                  ),
-                ),
-              ),
-              Positioned(
-                bottom: 20,
-                left: 20,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      "Current Streak",
-                      style: TextStyle(
-                        color: Colors.white.withOpacity(0.9),
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    Row(
-                      children: [
-                        const Icon(
-                          Icons.local_fire_department_rounded,
-                          color: Colors.orange,
-                          size: 24,
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          "$_currentStreak days",
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 24,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
+      body: RefreshIndicator(
+        onRefresh: _loadAttendanceData,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.fromLTRB(18, 14, 18, 28),
+          children: [
+            _buildHeroCard(),
+            const SizedBox(height: 18),
+            if (_noticeMessage != null) ...[
+              _buildNoticeBanner(_noticeMessage!),
+              const SizedBox(height: 18),
             ],
-          ),
-        ),
+            if (_errorMessage != null) ...[
+              _buildErrorBanner(_errorMessage!),
+              const SizedBox(height: 18),
+            ],
+            _buildMarkCard(),
+          const SizedBox(height: 18),
+          _buildStatsGrid(),
+          const SizedBox(height: 18),
+          _buildCalendarCard(),
+          const SizedBox(height: 18),
+          _buildHistoryCard(),
+        ],
+      ),
       ),
     );
   }
 
-  Widget _buildAttendanceOverview() {
+  Widget _buildHeroCard() {
+    return Container(
+      padding: const EdgeInsets.all(22),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF4F46E5), Color(0xFF2563EB)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(26),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(999),
+            ),
+            child: Text(
+              _hasMarkedToday ? 'Marked for today' : 'Pending for today',
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          Text(
+            'Track daily presence and keep your streak alive.',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: _isLocalMode ? 22 : 24,
+              fontWeight: FontWeight.w800,
+              height: 1.2,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            _hasMarkedToday
+                ? 'You are already marked for today.'
+                : 'Tap once below to mark attendance for today.',
+            style: const TextStyle(
+              color: Color(0xFFE0E7FF),
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildNoticeBanner(String message) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEFF6FF),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFBFDBFE)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.wifi_off_rounded, color: Color(0xFF2563EB)),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              message,
+              style: const TextStyle(
+                color: Color(0xFF1D4ED8),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildErrorBanner(String message) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFEF2F2),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFFECACA)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.error_outline_rounded, color: Color(0xFFDC2626)),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              message,
+              style: const TextStyle(
+                color: Color(0xFF991B1B),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMarkCard() {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Mark Attendance',
+            style: TextStyle(
+              color: Color(0xFF0F172A),
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            _hasMarkedToday
+                ? 'Today is already recorded in your attendance log.'
+                : 'Your attendance is recorded once per day and also adds reward points.',
+            style: const TextStyle(
+              color: Color(0xFF64748B),
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: (_isMarking || _isLoading || _hasMarkedToday)
+                  ? null
+                  : _markAttendance,
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFF4F46E5),
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+              ),
+              icon: _isMarking
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.check_circle_rounded),
+              label: Text(
+                _hasMarkedToday
+                    ? 'Attendance Marked'
+                    : _isMarking
+                    ? 'Saving...'
+                    : 'Mark Today',
+              ),
+            ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildStatsGrid() {
+    final stats = [
+      _AttendanceStat(
+        'Current Streak',
+        _isLoading ? '...' : '$_currentStreak days',
+        Icons.local_fire_department_rounded,
+        const Color(0xFFF97316),
+      ),
+      _AttendanceStat(
+        'This Month',
+        _isLoading ? '...' : '$_monthlyAttendance',
+        Icons.calendar_month_rounded,
+        const Color(0xFF2563EB),
+      ),
+      _AttendanceStat(
+        '30-Day Rate',
+        _isLoading ? '...' : '${_attendancePercentage.toStringAsFixed(0)}%',
+        Icons.insights_rounded,
+        const Color(0xFF0F766E),
+      ),
+      _AttendanceStat(
+        'Total Records',
+        _isLoading ? '...' : '${_attendanceHistory.length}',
+        Icons.fact_check_rounded,
+        const Color(0xFF7C3AED),
+      ),
+    ];
+
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: stats.length,
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 2,
+        crossAxisSpacing: 12,
+        mainAxisSpacing: 12,
+        mainAxisExtent: 126,
+      ),
+      itemBuilder: (context, index) {
+        final stat = stats[index];
+        return Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: const Color(0xFFE2E8F0)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: stat.color.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(stat.icon, color: stat.color, size: 18),
+              ),
+              const Spacer(),
+              Text(
+                stat.label,
+                style: const TextStyle(
+                  color: Color(0xFF64748B),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                stat.value,
+                style: const TextStyle(
+                  color: Color(0xFF0F172A),
+                  fontSize: 17,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildCalendarCard() {
+    final firstDay = DateTime(_visibleMonth.year, _visibleMonth.month, 1);
+    final leadingEmpty = firstDay.weekday - 1;
+    final daysInMonth = _daysInMonth(_visibleMonth);
+    final totalSlots = leadingEmpty + daysInMonth;
+    final trailingEmpty = (7 - (totalSlots % 7)) % 7;
+    final cellCount = totalSlots + trailingEmpty;
+    final selectedDate = _selectedDate;
+    final selectedRecord = selectedDate == null ? null : _recordForDate(selectedDate);
+    final selectedIsFuture = selectedDate != null && _isFutureDate(selectedDate);
+
+    const weekDays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: _hasMarkedToday 
-                      ? Colors.green.withOpacity(0.1)
-                      : Colors.orange.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Icon(
-                  _hasMarkedToday 
-                      ? Icons.check_circle_rounded
-                      : Icons.pending_rounded,
-                  color: _hasMarkedToday ? Colors.green : Colors.orange,
-                  size: 20,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
+              const Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      "Today's Status",
+                      'Monthly Calendar',
                       style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.grey[800],
+                        color: Color(0xFF0F172A),
+                        fontSize: 17,
+                        fontWeight: FontWeight.w800,
                       ),
                     ),
+                    SizedBox(height: 4),
                     Text(
-                      _hasMarkedToday 
-                          ? "Attendance marked successfully"
-                          : "Not yet marked",
+                      'Tap any date to check its attendance status.',
                       style: TextStyle(
-                        fontSize: 14,
-                        color: _hasMarkedToday ? Colors.green : Colors.orange,
+                        color: Color(0xFF64748B),
+                        fontSize: 13,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
                   ],
                 ),
               ),
+              IconButton(
+                onPressed: () => _changeMonth(-1),
+                icon: const Icon(Icons.chevron_left_rounded),
+                style: IconButton.styleFrom(
+                  backgroundColor: const Color(0xFFF8FAFC),
+                  minimumSize: const Size(36, 36),
+                  padding: EdgeInsets.zero,
+                ),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                _monthLabel(_visibleMonth),
+                style: const TextStyle(
+                  color: Color(0xFF0F172A),
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(width: 6),
+              IconButton(
+                onPressed: () => _changeMonth(1),
+                icon: const Icon(Icons.chevron_right_rounded),
+                style: IconButton.styleFrom(
+                  backgroundColor: const Color(0xFFF8FAFC),
+                  minimumSize: const Size(36, 36),
+                  padding: EdgeInsets.zero,
+                ),
+              ),
             ],
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
           Row(
-            children: [
-              Expanded(
-                child: _buildOverviewCard(
-                  "Monthly",
-                  "$_monthlyAttendance",
-                  Icons.calendar_month_rounded,
-                  const Color(0xFF3B82F6),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _buildOverviewCard(
-                  "Percentage",
-                  "${_attendancePercentage.toStringAsFixed(1)}%",
-                  Icons.pie_chart_rounded,
-                  const Color(0xFF8B5CF6),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildOverviewCard(String title, String value, IconData icon, Color color) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.05),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: color.withOpacity(0.2),
-          width: 1,
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(
-            icon,
-            color: color,
-            size: 20,
-          ),
-          const SizedBox(height: 8),
-          Text(
-            title,
-            style: TextStyle(
-              fontSize: 12,
-              color: Colors.grey[600],
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w800,
-              color: color,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildMarkAttendanceButton() {
-    return Container(
-      width: double.infinity,
-      height: 60,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: _hasMarkedToday 
-                ? Colors.green.withOpacity(0.3)
-                : const Color(0xFF4F46E5).withOpacity(0.3),
-            blurRadius: 12,
-            offset: const Offset(0, 6),
-          ),
-        ],
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: _isMarking ? null : markAttendance,
-          borderRadius: BorderRadius.circular(16),
-          child: Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: _hasMarkedToday 
-                    ? [Colors.green, Colors.green.shade700]
-                    : [const Color(0xFF4F46E5), const Color(0xFF7C3AED)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Center(
-              child: _isMarking
-                  ? const Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                          ),
+            children: weekDays
+                .map(
+                  (day) => Expanded(
+                    child: Center(
+                      child: Text(
+                        day,
+                        style: const TextStyle(
+                          color: Color(0xFF64748B),
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
                         ),
-                        SizedBox(width: 12),
-                        Text(
-                          "Marking...",
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 18,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    )
-                  : Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          _hasMarkedToday 
-                              ? Icons.check_circle_rounded
-                              : Icons.fingerprint_rounded,
-                          color: Colors.white,
-                          size: 24,
-                        ),
-                        const SizedBox(width: 12),
-                        Text(
-                          _hasMarkedToday 
-                              ? "Already Marked Today"
-                              : "Mark Today's Attendance",
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 18,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
+                      ),
                     ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildAttendanceStats() {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF4F46E5).withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Icon(
-                  Icons.analytics_rounded,
-                  color: Color(0xFF4F46E5),
-                  size: 20,
-                ),
-              ),
-              const SizedBox(width: 12),
-              const Text(
-                "Attendance Statistics",
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFF1F2937),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
-          Row(
-            children: [
-              Expanded(
-                child: _buildStatItem(
-                  "Current Streak",
-                  "$_currentStreak days",
-                  Icons.local_fire_department_rounded,
-                  Colors.orange,
-                ),
-              ),
-              Expanded(
-                child: _buildStatItem(
-                  "This Month",
-                  "$_monthlyAttendance days",
-                  Icons.calendar_month_rounded,
-                  Colors.blue,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(
-                child: _buildStatItem(
-                  "Overall Rate",
-                  "${_attendancePercentage.toStringAsFixed(1)}%",
-                  Icons.pie_chart_rounded,
-                  Colors.purple,
-                ),
-              ),
-              Expanded(
-                child: _buildStatItem(
-                  "Total Records",
-                  "${_attendanceHistory.length} days",
-                  Icons.history_rounded,
-                  Colors.green,
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStatItem(String title, String value, IconData icon, Color color) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.05),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: color.withOpacity(0.2),
-          width: 1,
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(
-            icon,
-            color: color,
-            size: 20,
+                  ),
+                )
+                .toList(),
           ),
           const SizedBox(height: 8),
-          Text(
-            title,
-            style: TextStyle(
-              fontSize: 12,
-              color: Colors.grey[600],
-              fontWeight: FontWeight.w500,
+          GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: cellCount,
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 7,
+              crossAxisSpacing: 6,
+              mainAxisSpacing: 6,
+              mainAxisExtent: 36,
             ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w800,
-              color: color,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+            itemBuilder: (context, index) {
+              if (index < leadingEmpty || index >= leadingEmpty + daysInMonth) {
+                return const SizedBox.shrink();
+              }
 
-  Widget _buildAttendanceHistory() {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
+              final dayNumber = index - leadingEmpty + 1;
+              final date = DateTime(_visibleMonth.year, _visibleMonth.month, dayNumber);
+              final record = _recordForDate(date);
+              final isFuture = _isFutureDate(date);
+              final isSelected = selectedDate != null && _isSameDate(selectedDate, date);
+
+              final backgroundColor = record != null
+                  ? const Color(0xFFDCFCE7)
+                  : isFuture
+                  ? const Color(0xFFF8FAFC)
+                  : const Color(0xFFFEE2E2);
+              final textColor = record != null
+                  ? const Color(0xFF166534)
+                  : isFuture
+                  ? const Color(0xFF94A3B8)
+                  : const Color(0xFFB91C1C);
+              final borderColor = isSelected
+                  ? const Color(0xFF2563EB)
+                  : record != null
+                  ? const Color(0xFF86EFAC)
+                  : isFuture
+                  ? const Color(0xFFE2E8F0)
+                  : const Color(0xFFFCA5A5);
+
+              return Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: () => _selectDate(date),
+                  borderRadius: BorderRadius.circular(14),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 160),
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: backgroundColor,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: borderColor,
+                        width: isSelected ? 2 : 1,
+                      ),
+                    ),
+                    child: Text(
+                      '$dayNumber',
+                      style: TextStyle(
+                        color: textColor,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            },
           ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF4F46E5).withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Icon(
-                  Icons.history_rounded,
-                  color: Color(0xFF4F46E5),
-                  size: 20,
-                ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 12,
+            runSpacing: 10,
+            children: const [
+              _CalendarLegendChip(
+                label: 'Present',
+                backgroundColor: Color(0xFFDCFCE7),
+                borderColor: Color(0xFF86EFAC),
+                textColor: Color(0xFF166534),
               ),
-              const SizedBox(width: 12),
-              const Text(
-                "Recent Attendance",
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFF1F2937),
-                ),
+              _CalendarLegendChip(
+                label: 'Absent',
+                backgroundColor: Color(0xFFFEE2E2),
+                borderColor: Color(0xFFFCA5A5),
+                textColor: Color(0xFFB91C1C),
+              ),
+              _CalendarLegendChip(
+                label: 'Future',
+                backgroundColor: Color(0xFFF8FAFC),
+                borderColor: Color(0xFFE2E8F0),
+                textColor: Color(0xFF64748B),
               ),
             ],
           ),
-          const SizedBox(height: 16),
-          if (_attendanceHistory.isEmpty)
+          if (selectedDate != null) ...[
+            const SizedBox(height: 12),
             Container(
-              padding: const EdgeInsets.all(32),
+              width: double.infinity,
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF8FAFC),
+                borderRadius: BorderRadius.circular(18),
+              ),
               child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(
-                    Icons.calendar_today_rounded,
-                    size: 48,
-                    color: Colors.grey[400],
-                  ),
-                  const SizedBox(height: 16),
                   Text(
-                    "No attendance records yet",
-                    style: TextStyle(
-                      fontSize: 16,
-                      color: Colors.grey[600],
-                      fontWeight: FontWeight.w500,
+                    _formatDate(_dateKeyFromDate(selectedDate)),
+                    style: const TextStyle(
+                      color: Color(0xFF0F172A),
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w800,
                     ),
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 6),
                   Text(
-                    "Start marking your attendance to see history",
+                    selectedRecord != null
+                        ? 'Attendance marked${(selectedRecord['time']?.toString().isNotEmpty ?? false) ? ' at ${selectedRecord['time']}' : ''}.'
+                        : selectedIsFuture
+                        ? 'This date is in the future, so attendance is not expected yet.'
+                        : 'Attendance was not marked on this date.',
                     style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey[500],
+                      color: selectedRecord != null
+                          ? const Color(0xFF166534)
+                          : selectedIsFuture
+                          ? const Color(0xFF64748B)
+                          : const Color(0xFFB91C1C),
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
                     ),
-                    textAlign: TextAlign.center,
                   ),
                 ],
               ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHistoryCard() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Attendance History',
+            style: TextStyle(
+              color: Color(0xFF0F172A),
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 8),
+          if (_isLoading)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 28),
+              child: Center(child: CircularProgressIndicator()),
+            )
+          else if (_attendanceHistory.isEmpty)
+            const Padding(
+              padding: EdgeInsets.only(top: 8),
+              child: Text(
+                'No attendance records yet. Mark today to create your first entry.',
+                style: TextStyle(
+                  color: Color(0xFF64748B),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
             )
           else
-            ListView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: _attendanceHistory.take(10).length,
-              itemBuilder: (context, index) {
-                final record = _attendanceHistory[index];
-                final date = DateTime.parse(record['date']);
-                final formattedDate = "${date.day}/${date.month}/${date.year}";
-                
-                return Container(
-                  margin: const EdgeInsets.only(bottom: 12),
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.grey[50],
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: Colors.grey[200]!,
-                      width: 1,
+            ..._attendanceHistory.map((record) {
+              final rawDate = record['date']?.toString() ?? '';
+              final time = record['time']?.toString() ?? '';
+              return Container(
+                margin: const EdgeInsets.only(top: 12),
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF4F46E5).withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Icon(
+                        Icons.calendar_today_rounded,
+                        color: Color(0xFF4F46E5),
+                        size: 18,
+                      ),
                     ),
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: Colors.green.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: const Icon(
-                          Icons.check_circle_rounded,
-                          color: Colors.green,
-                          size: 20,
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              formattedDate,
-                              style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                                color: Color(0xFF1F2937),
-                              ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _formatDate(rawDate),
+                            style: const TextStyle(
+                              color: Color(0xFF0F172A),
+                              fontWeight: FontWeight.w700,
                             ),
-                            const SizedBox(height: 4),
-                            Text(
-                              "Marked at ${record['time']}",
-                              style: TextStyle(
-                                fontSize: 14,
-                                color: Colors.grey[600],
-                              ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            time.isEmpty ? 'Time unavailable' : 'Marked at $time',
+                            style: const TextStyle(
+                              color: Color(0xFF64748B),
+                              fontWeight: FontWeight.w600,
                             ),
-                          ],
-                        ),
+                          ),
+                        ],
                       ),
-                      Icon(
-                        Icons.arrow_forward_ios_rounded,
-                        size: 16,
-                        color: Colors.grey[400],
-                      ),
-                    ],
-                  ),
-                );
-              },
-            ),
+                    ),
+                  ],
+                ),
+              );
+            }),
         ],
+      ),
+    );
+  }
+}
+
+class _AttendanceStat {
+  const _AttendanceStat(this.label, this.value, this.icon, this.color);
+
+  final String label;
+  final String value;
+  final IconData icon;
+  final Color color;
+}
+
+class _CalendarLegendChip extends StatelessWidget {
+  const _CalendarLegendChip({
+    required this.label,
+    required this.backgroundColor,
+    required this.borderColor,
+    required this.textColor,
+  });
+
+  final String label;
+  final Color backgroundColor;
+  final Color borderColor;
+  final Color textColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: borderColor),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: textColor,
+          fontWeight: FontWeight.w700,
+        ),
       ),
     );
   }

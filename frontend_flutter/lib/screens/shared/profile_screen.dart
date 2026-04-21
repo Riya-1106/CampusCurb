@@ -2,6 +2,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import '../../services/campus_service.dart';
+
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
 
@@ -10,6 +12,7 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
+  final CampusService _campusService = CampusService();
   final _nameController = TextEditingController();
   final _phoneController = TextEditingController();
   final _departmentController = TextEditingController();
@@ -108,10 +111,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
             .toList();
       }
 
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .set(payload, SetOptions(merge: true));
+      await _campusService.updateProfile(
+        name: payload['name']?.toString() ?? '',
+        phone: payload['phone']?.toString() ?? '',
+        department: payload['department']?.toString(),
+        collegeName: payload['collegeName']?.toString(),
+        collegeDomains: (payload['collegeDomains'] as List<dynamic>?)
+            ?.map((value) => value.toString())
+            .toList(),
+      );
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

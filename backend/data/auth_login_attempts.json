@@ -388,5 +388,65 @@
     "selected_role": "admin",
     "ip": "127.0.0.1",
     "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+  },
+  {
+    "timestamp": "2026-04-20T06:18:09.368596+00:00",
+    "email": "sobinsabu206@student.sfit.ac.in",
+    "method": "password",
+    "success": true,
+    "reason": "Login success",
+    "selected_role": "student",
+    "ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+  },
+  {
+    "timestamp": "2026-04-20T18:54:42.024806+00:00",
+    "email": "sobinsabu206@student.sfit.ac.in",
+    "method": "password",
+    "success": true,
+    "reason": "Login success",
+    "selected_role": "student",
+    "ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+  },
+  {
+    "timestamp": "2026-04-20T19:05:39.632545+00:00",
+    "email": "sobinsabu206@student.sfit.ac.in",
+    "method": "password",
+    "success": true,
+    "reason": "Login success",
+    "selected_role": "student",
+    "ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+  },
+  {
+    "timestamp": "2026-04-20T19:14:11.219197+00:00",
+    "email": "sobinsabu206@student.sfit.ac.in",
+    "method": "password",
+    "success": true,
+    "reason": "Login success",
+    "selected_role": "student",
+    "ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+  },
+  {
+    "timestamp": "2026-04-20T19:31:20.965406+00:00",
+    "email": "sobinsabu206@student.sfit.ac.in",
+    "method": "password",
+    "success": true,
+    "reason": "Login success",
+    "selected_role": "student",
+    "ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+  },
+  {
+    "timestamp": "2026-04-21T03:23:35.734115+00:00",
+    "email": "sobinsabu206@student.sfit.ac.in",
+    "method": "password",
+    "success": true,
+    "reason": "Login success",
+    "selected_role": "student",
+    "ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
   }
 ]

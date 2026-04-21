@@ -5,7 +5,7 @@ import 'firebase_options.dart';
 
 import 'screens/auth/login_screen.dart';
 import 'screens/landing/landing_screen.dart';
-import 'screens/student/student_dashboard.dart';
+import 'screens/student/student_shell.dart';
 import 'screens/canteen/canteen_dashboard.dart';
 import 'screens/college/college_dashboard.dart';
 import 'screens/faculty/faculty_dashboard.dart';
@@ -91,7 +91,7 @@ class RoleBasedRouter extends StatelessWidget {
         final role = data['role'];
 
         if (role == 'student') {
-          return const StudentDashboard();
+          return const StudentShell();
         } else if (role == 'canteen') {
           return const CanteenDashboard();
         } else if (role == 'admin') {

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
@@ -5,6 +6,7 @@ import 'api_config.dart';
 
 class PredictionService {
   static String get _baseUrl => ApiConfig.baseUrl;
+  static const Duration _rewardTimeout = Duration(milliseconds: 1200);
 
   static String get backendBaseUrl => _baseUrl;
 
@@ -60,11 +62,24 @@ class PredictionService {
 
   /// Fetches reward description for a given points value.
   Future<String> getReward(int points) async {
-    final response = await http.get(Uri.parse('$_baseUrl/rewards/$points'));
-    if (response.statusCode != 200) {
-      throw Exception('Failed to fetch reward');
+    try {
+      final response = await http
+          .get(Uri.parse('$_baseUrl/rewards/$points'))
+          .timeout(_rewardTimeout);
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body) as Map<String, dynamic>;
+        return data['reward'] as String? ?? _fallbackReward(points);
+      }
+    } catch (_) {
+      // Fall back to local reward thresholds when the backend is unavailable.
     }
-    final data = json.decode(response.body) as Map<String, dynamic>;
-    return data['reward'] as String? ?? 'No reward';
+    return _fallbackReward(points);
+  }
+
+  String _fallbackReward(int points) {
+    if (points >= 500) return 'Free meal';
+    if (points >= 250) return '10% discount';
+    if (points >= 100) return '5% discount';
+    return 'No reward';
   }
 }

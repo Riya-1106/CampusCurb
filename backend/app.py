@@ -9,12 +9,14 @@ import os
 import re
 import secrets
 import string
+import threading
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 from datetime import datetime, timezone
 
 
 from firebase_admin import auth as firebase_auth
+from firebase_admin import firestore as admin_firestore
 from firebase_admin import messaging as firebase_messaging
 from firebase_connect import db
 
@@ -28,7 +30,21 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost",
+        "http://127.0.0.1",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+    ],
+    allow_origin_regex=(
+        r"https?://("
+        r"localhost|"
+        r"127\.0\.0\.1|"
+        r"10(?:\.\d{1,3}){3}|"
+        r"192\.168(?:\.\d{1,3}){2}|"
+        r"172\.(?:1[6-9]|2\d|3[0-1])(?:\.\d{1,3}){2}"
+        r")(?::\d+)?$"
+    ),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -131,6 +147,155 @@ def _normalize_college_key(value: str) -> str:
     while "--" in cleaned:
         cleaned = cleaned.replace("--", "-")
     return cleaned.strip("-")
+
+
+def _safe_int(value: Any, default: int = 0) -> int:
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(round(value))
+    try:
+        return int(str(value).strip())
+    except Exception:
+        return default
+
+
+def _load_points_cache() -> Dict[str, int]:
+    cache = load_data(POINTS_CACHE_FILE, DEFAULT_POINTS_CACHE)
+    if isinstance(cache, dict):
+        return cache
+    return {}
+
+
+def _baseline_user_points(uid: str) -> int:
+    orders = load_data(ORDERS_FILE, DEFAULT_ORDERS)
+    order_points = 0
+    for order in orders:
+        if str(order.get("uid", "")).strip() != uid.strip():
+            continue
+        quantity = max(_safe_int(order.get("quantity", 1), 1), 1)
+        category = str(order.get("category", "")).strip().lower()
+        order_points += max(quantity * 10, 10) + _order_bonus_points(category, quantity)
+
+    attendance = load_data(ATTENDANCE_FILE, DEFAULT_ATTENDANCE)
+    attendance_points = sum(
+        5 for record in attendance if str(record.get("uid", "")).strip() == uid.strip()
+    )
+    return order_points + attendance_points
+
+
+def _current_points_from_cache(uid: str) -> int:
+    cache = _load_points_cache()
+    cached_points = _safe_int(cache.get(uid, 0))
+    baseline_points = _baseline_user_points(uid)
+    current_points = baseline_points if baseline_points > 0 else cached_points
+    if current_points != cached_points:
+        cache[uid] = current_points
+        save_data(POINTS_CACHE_FILE, cache)
+    return current_points
+
+
+def _set_cached_user_points(uid: str, points: int) -> None:
+    cache = _load_points_cache()
+    cache[uid] = max(_safe_int(points), 0)
+    save_data(POINTS_CACHE_FILE, cache)
+
+
+def _sync_user_points_to_firestore(uid: str, points: int) -> None:
+    try:
+        db.collection("users").document(uid).set(
+            {
+                "points": max(_safe_int(points), 0),
+                "updatedAt": datetime.now(timezone.utc).isoformat(),
+            },
+            merge=True,
+            timeout=2,
+        )
+    except Exception:
+        # Firestore sync is best-effort; student actions should stay responsive.
+        pass
+
+
+def _increment_user_points(uid: str, delta: int) -> int:
+    current_points = _current_points_from_cache(uid)
+    next_points = max(current_points + max(delta, 0), 0)
+    _set_cached_user_points(uid, next_points)
+    threading.Thread(
+        target=_sync_user_points_to_firestore,
+        args=(uid, next_points),
+        daemon=True,
+    ).start()
+    return next_points
+
+
+def _sorted_attendance_records(uid: str) -> List[Dict[str, Any]]:
+    attendance = load_data(ATTENDANCE_FILE, DEFAULT_ATTENDANCE)
+    records = [
+        {
+            "id": record.get("id", ""),
+            "uid": record.get("uid", ""),
+            "date": record.get("date", ""),
+            "time": record.get("time", ""),
+        }
+        for record in attendance
+        if str(record.get("uid", "")).strip() == uid.strip()
+    ]
+    records.sort(
+        key=lambda record: f"{record.get('date', '')}T{record.get('time', '')}",
+        reverse=True,
+    )
+    return records
+
+
+def _attendance_summary(records: List[Dict[str, Any]]) -> Dict[str, Any]:
+    today = datetime.now()
+    today_key = today.strftime("%Y-%m-%d")
+    monthly_count = 0
+    streak = 0
+
+    normalized_dates = []
+    for record in records:
+        raw_date = str(record.get("date", "")).strip()
+        try:
+            parsed = datetime.fromisoformat(raw_date)
+        except Exception:
+            continue
+        normalized_dates.append(parsed)
+        if parsed.year == today.year and parsed.month == today.month:
+            monthly_count += 1
+
+    normalized_dates.sort(reverse=True)
+    for index, parsed_date in enumerate(normalized_dates):
+        expected = today.date().fromordinal(today.date().toordinal() - index)
+        if parsed_date.date() == expected:
+            streak += 1
+        else:
+            break
+
+    return {
+        "has_marked_today": any(str(record.get("date", "")) == today_key for record in records),
+        "current_streak": streak,
+        "monthly_attendance": monthly_count,
+        "attendance_percentage": round((len(records) / 30) * 100, 2) if records else 0.0,
+    }
+
+
+def _order_bonus_points(category: Optional[str], quantity: int) -> int:
+    normalized = str(category or "").strip().lower()
+    if quantity <= 0:
+        return 0
+
+    if normalized in {"meal", "lunch", "rice"}:
+        return quantity * 6
+    if normalized in {"breakfast", "snack", "sandwich"}:
+        return quantity * 4
+    if normalized in {"dessert", "sweet", "beverage", "drinks"}:
+        return quantity * 2
+    if normalized:
+        return quantity * 3
+    return 0
 
 
 
@@ -556,6 +721,7 @@ EXCHANGE_FILE = DATA_DIR / "admin_exchange_requests.json"
 MENU_MASTER = DATA_DIR / "menu.json"
 ORDERS_FILE = DATA_DIR / "orders.json"
 ATTENDANCE_FILE = DATA_DIR / "attendance.json"
+POINTS_CACHE_FILE = DATA_DIR / "user_points_cache.json"
 
 
 DEFAULT_MENU_PENDING = [
@@ -605,6 +771,7 @@ DEFAULT_MENU = [
 
 DEFAULT_ORDERS = []
 DEFAULT_ATTENDANCE = []
+DEFAULT_POINTS_CACHE = {}
 LOGIN_ATTEMPTS_FILE = DATA_DIR / "auth_login_attempts.json"
 DEFAULT_LOGIN_ATTEMPTS = []
 
@@ -1319,22 +1486,24 @@ def get_college_food_requests(authorization: Optional[str] = Header(default=None
 
 @app.get("/menu")
 def get_menu():
-    docs = db.collection("menu").where("approved", "==", True).stream()
-    menu_items = []
-    for doc in docs:
-        data = doc.to_dict() or {}
-        menu_items.append({
-            "id": doc.id,
-            "item_id": doc.id,
-            "name": data.get("name", ""),
-            "price": data.get("price", 0),
-            "category": data.get("category", "general"),
-            "approved": data.get("approved", True),
-        })
+    try:
+        docs = db.collection("menu").where("approved", "==", True).stream(timeout=3)
+        menu_items = []
+        for doc in docs:
+            data = doc.to_dict() or {}
+            menu_items.append({
+                "id": doc.id,
+                "item_id": doc.id,
+                "name": data.get("name", ""),
+                "price": data.get("price", 0),
+                "category": data.get("category", "general"),
+                "approved": data.get("approved", True),
+            })
 
-
-    if menu_items:
-        return menu_items
+        if menu_items:
+            return menu_items
+    except Exception:
+        pass
 
 
     # Fallback for demo setup where menu has not been approved yet.
@@ -1377,23 +1546,175 @@ class OrderRequest(BaseModel):
     item: str
     price: int
     quantity: int
+    category: Optional[str] = None
+
+
+class BatchOrderItem(BaseModel):
+    item: str
+    price: int
+    quantity: int
+    category: Optional[str] = None
+
+
+class BatchOrderRequest(BaseModel):
+    uid: str
+    items: List[BatchOrderItem]
 
 
 
 
 @app.post("/order")
 def place_order(order: OrderRequest):
+    if order.quantity <= 0:
+        raise HTTPException(status_code=400, detail="Quantity must be greater than zero")
+    if order.price < 0:
+        raise HTTPException(status_code=400, detail="Price cannot be negative")
+
     orders = load_data(ORDERS_FILE, DEFAULT_ORDERS)
+    category = str(order.category or "general").strip().lower() or "general"
     orders.append({
         "id": str(len(orders) + 1),
         "uid": order.uid,
         "item": order.item,
         "price": order.price,
         "quantity": order.quantity,
+        "category": category,
         "time": pd.Timestamp.now().isoformat(),
     })
     save_data(ORDERS_FILE, orders)
-    return {"message": "Order placed"}
+    base_points = max(order.quantity * 10, 10)
+    bonus_points = _order_bonus_points(category, order.quantity)
+    points_awarded = base_points + bonus_points
+    total_points = _increment_user_points(order.uid, points_awarded)
+    return {
+        "message": "Order placed",
+        "base_points": base_points,
+        "bonus_points": bonus_points,
+        "points_awarded": points_awarded,
+        "total_points": total_points,
+        "reward": get_rewards(total_points),
+    }
+
+
+@app.post("/order/batch")
+def place_order_batch(payload: BatchOrderRequest):
+    if not payload.items:
+        raise HTTPException(status_code=400, detail="Cart is empty")
+
+    orders = load_data(ORDERS_FILE, DEFAULT_ORDERS)
+    next_id = len(orders) + 1
+    total_cost = 0
+    total_quantity = 0
+    total_awarded = 0
+    total_bonus = 0
+    placed_items = []
+
+    for line in payload.items:
+        if line.quantity <= 0:
+            raise HTTPException(status_code=400, detail="Quantity must be greater than zero")
+        if line.price < 0:
+            raise HTTPException(status_code=400, detail="Price cannot be negative")
+
+        category = str(line.category or "general").strip().lower() or "general"
+        orders.append({
+            "id": str(next_id),
+            "uid": payload.uid,
+            "item": line.item,
+            "price": line.price,
+            "quantity": line.quantity,
+            "category": category,
+            "time": pd.Timestamp.now().isoformat(),
+        })
+        next_id += 1
+
+        base_points = max(line.quantity * 10, 10)
+        bonus_points = _order_bonus_points(category, line.quantity)
+        points_awarded = base_points + bonus_points
+        total_awarded += points_awarded
+        total_bonus += bonus_points
+        total_cost += line.price * line.quantity
+        total_quantity += line.quantity
+        placed_items.append(
+            {
+                "item": line.item,
+                "quantity": line.quantity,
+                "price": line.price,
+                "category": category,
+                "points_awarded": points_awarded,
+                "bonus_points": bonus_points,
+            }
+        )
+
+    save_data(ORDERS_FILE, orders)
+    total_points = _increment_user_points(payload.uid, total_awarded)
+    return {
+        "message": "Order placed",
+        "items": placed_items,
+        "item_count": len(placed_items),
+        "quantity_total": total_quantity,
+        "total_cost": total_cost,
+        "bonus_points": total_bonus,
+        "points_awarded": total_awarded,
+        "total_points": total_points,
+        "reward": get_rewards(total_points),
+    }
+
+
+@app.get("/student/orders/{uid}")
+def get_student_orders(uid: str):
+    orders = load_data(ORDERS_FILE, DEFAULT_ORDERS)
+    student_orders = [
+        order for order in orders if str(order.get("uid", "")).strip() == uid.strip()
+    ]
+    student_orders.sort(key=lambda order: str(order.get("time", "")), reverse=True)
+    return student_orders
+
+
+@app.get("/student/attendance/{uid}")
+def get_student_attendance(uid: str):
+    records = _sorted_attendance_records(uid)
+    summary = _attendance_summary(records)
+    return {
+        "records": records,
+        **summary,
+    }
+
+
+@app.get("/student/leaderboard")
+def get_student_leaderboard():
+    leaderboard = []
+    try:
+        docs = db.collection("users").stream(timeout=3)
+        for doc in docs:
+            data = doc.to_dict() or {}
+            role = str(data.get("role", "")).strip().lower()
+            if role not in {"student", "faculty"}:
+                continue
+            if data.get("isActive") is False:
+                continue
+
+            points = _safe_int(data.get("points", data.get("rewardPoints", 0)))
+            leaderboard.append(
+                {
+                    "uid": doc.id,
+                    "name": data.get("name", "") or "Campus User",
+                    "email": data.get("email", ""),
+                    "role": role,
+                    "points": points,
+                    "reward": get_rewards(points),
+                }
+            )
+    except Exception:
+        return []
+
+    leaderboard.sort(
+        key=lambda row: (-row["points"], str(row.get("name", "")).lower(), str(row.get("email", "")).lower())
+    )
+
+    for index, row in enumerate(leaderboard, start=1):
+        row["rank"] = index
+
+    return leaderboard
 
 
 
@@ -1419,7 +1740,64 @@ def mark_attendance(att: AttendanceRequest):
         "time": att.time,
     })
     save_data(ATTENDANCE_FILE, attendance)
-    return {"message": "Attendance marked"}
+    points_awarded = 5
+    total_points = _increment_user_points(att.uid, points_awarded)
+    return {
+        "message": "Attendance marked",
+        "points_awarded": points_awarded,
+        "total_points": total_points,
+    }
+
+
+class UpdateProfileRequest(BaseModel):
+    name: str = ""
+    phone: str = ""
+    department: Optional[str] = None
+    college_name: Optional[str] = None
+    college_domains: Optional[List[str]] = None
+
+
+@app.put("/users/profile")
+def update_user_profile(
+    payload: UpdateProfileRequest,
+    authorization: Optional[str] = Header(default=None),
+):
+    uid = _require_authenticated_uid(authorization)
+    user_ref = db.collection("users").document(uid)
+    user_doc = user_ref.get()
+    if not user_doc.exists:
+        raise HTTPException(status_code=404, detail="User profile not found")
+
+    current_data = user_doc.to_dict() or {}
+    role = str(current_data.get("role", "")).strip().lower()
+
+    update_payload: Dict[str, Any] = {
+        "name": payload.name.strip(),
+        "phone": payload.phone.strip(),
+        "updatedAt": datetime.now(timezone.utc).isoformat(),
+    }
+
+    if role in {"faculty", "canteen"} and payload.department is not None:
+        update_payload["department"] = payload.department.strip()
+
+    if role == "college":
+        if payload.college_name is not None:
+            update_payload["collegeName"] = payload.college_name.strip()
+        if payload.college_domains is not None:
+            normalized_domains = []
+            for domain in payload.college_domains:
+                parsed = _normalize_domain(str(domain))
+                if parsed and parsed not in normalized_domains:
+                    normalized_domains.append(parsed)
+            update_payload["collegeDomains"] = normalized_domains
+            update_payload["collegeKey"] = _build_college_key(
+                str(update_payload.get("collegeName", current_data.get("collegeName", ""))),
+                str(current_data.get("email", "")),
+                normalized_domains,
+            )
+
+    user_ref.set(update_payload, merge=True)
+    return {"message": "Profile updated", "profile": update_payload}
 
 
 
@@ -1778,4 +2156,3 @@ async def test_smtp_debug():
         "use_ssl": os.getenv("SMTP_USE_SSL", "NOT SET"),
         "use_tls": os.getenv("SMTP_USE_TLS", "NOT SET"),
     }
-
