@@ -11,12 +11,19 @@ class PredictionScreen extends StatefulWidget {
 
 class _PredictionScreenState extends State<PredictionScreen> {
   final PredictionService _service = PredictionService();
-  Map<String, dynamic>? data;
-  bool loading = true;
+
+  Map<String, dynamic>? _data;
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadDashboard();
+  }
 
   int _toInt(dynamic value) {
     if (value is int) return value;
-    if (value is num) return value.toInt();
+    if (value is num) return value.round();
     return int.tryParse(value?.toString() ?? '') ?? 0;
   }
 
@@ -26,23 +33,253 @@ class _PredictionScreenState extends State<PredictionScreen> {
     return double.tryParse(value?.toString() ?? '') ?? 0;
   }
 
-  Widget _metricRow(String label, String value, {Color? color}) {
+  Future<void> _loadDashboard() async {
+    setState(() {
+      _loading = true;
+    });
+
+    try {
+      final result = await _service.getDemandDashboard();
+      if (!mounted) return;
+      setState(() {
+        _data = result;
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+      });
+    }
+  }
+
+  Color _confidenceColor(String label) {
+    switch (label.toLowerCase()) {
+      case 'high':
+        return const Color(0xFF15803D);
+      case 'medium':
+        return const Color(0xFFB45309);
+      default:
+        return const Color(0xFFB91C1C);
+    }
+  }
+
+  IconData _trendIcon(String direction) {
+    switch (direction.toLowerCase()) {
+      case 'up':
+        return Icons.trending_up_rounded;
+      case 'down':
+        return Icons.trending_down_rounded;
+      default:
+        return Icons.trending_flat_rounded;
+    }
+  }
+
+  Widget _summaryChip(String title, String value, Color color) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: color.withValues(alpha: 0.20)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            value,
+            style: TextStyle(
+              color: color,
+              fontWeight: FontWeight.w800,
+              fontSize: 20,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            title,
+            style: const TextStyle(
+              color: Color(0xFF475569),
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _infoRow(String label, String value, {Color? color}) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 2),
+      padding: const EdgeInsets.symmetric(vertical: 3),
       child: Row(
         children: [
           Expanded(
             child: Text(
               label,
-              style: const TextStyle(fontSize: 14, color: Colors.black54),
+              style: const TextStyle(
+                color: Color(0xFF64748B),
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
           Text(
             value,
             style: TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w600,
-              color: color ?? Colors.black87,
+              color: color ?? const Color(0xFF0F172A),
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildForecastCard(Map<String, dynamic> item) {
+    final confidenceLabel = item['confidence_label']?.toString() ?? 'Low';
+    final confidenceColor = _confidenceColor(confidenceLabel);
+    final trendDirection = item['trend_direction']?.toString() ?? 'stable';
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEFF6FF),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Icon(
+                  _trendIcon(trendDirection),
+                  color: const Color(0xFF2563EB),
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      item['food_item']?.toString() ?? 'Menu item',
+                      style: const TextStyle(
+                        color: Color(0xFF0F172A),
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      '${item['food_category'] ?? 'General'} • ${item['time_slot'] ?? ''}',
+                      style: const TextStyle(
+                        color: Color(0xFF64748B),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: confidenceColor.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  '$confidenceLabel confidence',
+                  style: TextStyle(
+                    color: confidenceColor,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              _summaryChip(
+                'Predicted demand',
+                '${_toInt(item['predicted_demand'])}',
+                const Color(0xFF2563EB),
+              ),
+              _summaryChip(
+                'Suggested prep',
+                '${_toInt(item['suggested_preparation'])}',
+                const Color(0xFF15803D),
+              ),
+              _summaryChip(
+                'Recent avg sales',
+                _toDouble(item['recent_average_sales']).toStringAsFixed(1),
+                const Color(0xFF7C3AED),
+              ),
+              _summaryChip(
+                'Expected waste',
+                '${_toInt(item['expected_waste'])}',
+                const Color(0xFFB45309),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          _infoRow(
+            'Confidence score',
+            '${_toDouble(item['confidence_score']).toStringAsFixed(1)}%',
+            color: confidenceColor,
+          ),
+          _infoRow(
+            'Historical prep average',
+            '${_toInt(item['historical_preparation_average'])}',
+          ),
+          _infoRow(
+            'Weather context',
+            '${item['weather_type'] ?? 'Sunny'} • ${_toInt(item['temperature'])}°C',
+          ),
+          const SizedBox(height: 12),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF8FAFC),
+              borderRadius: BorderRadius.circular(18),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Why the model suggests this',
+                  style: TextStyle(
+                    color: Color(0xFF0F172A),
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  item['trend_reason']?.toString() ?? 'Demand is stable.',
+                  style: const TextStyle(
+                    color: Color(0xFF475569),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  item['recommended_action']?.toString() ??
+                      'Keep preparation close to the recent average.',
+                  style: const TextStyle(
+                    color: Color(0xFF0F766E),
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -51,210 +288,148 @@ class _PredictionScreenState extends State<PredictionScreen> {
   }
 
   @override
-  void initState() {
-    super.initState();
-    fetchDemandDashboard();
-  }
-
-  Future<void> fetchDemandDashboard() async {
-    try {
-      final result = await _service.getDemandDashboard();
-      setState(() {
-        data = result;
-        loading = false;
-      });
-    } catch (_) {
-      setState(() {
-        loading = false;
-      });
-    }
-  }
-
-  @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.grey.shade100,
-      appBar: AppBar(
-        title: const Text("Demand Forecast Dashboard"),
-        centerTitle: true,
-        backgroundColor: const Color(0xFF4A90E2),
+    final summary = Map<String, dynamic>.from(
+      _data?['summary'] as Map<String, dynamic>? ?? {},
+    );
+    final model = Map<String, dynamic>.from(
+      _data?['model'] as Map<String, dynamic>? ?? {},
+    );
+    final rows = List<Map<String, dynamic>>.from(
+      (_data?['dashboard'] as List<dynamic>? ?? []).map(
+        (item) => Map<String, dynamic>.from(item as Map),
       ),
+    );
 
+    return Scaffold(
+      backgroundColor: const Color(0xFFF6F8FC),
+      appBar: AppBar(
+        title: const Text('Demand Forecast Dashboard'),
+        backgroundColor: Colors.white,
+        foregroundColor: const Color(0xFF0F172A),
+        elevation: 0,
+        actions: [
+          IconButton(
+            onPressed: _loadDashboard,
+            icon: const Icon(Icons.refresh_rounded),
+          ),
+        ],
+      ),
       body: SafeArea(
-        child: loading
+        child: _loading
             ? const Center(child: CircularProgressIndicator())
-            : data == null
-            ? const Center(child: Text("Failed to load data"))
-            : SingleChildScrollView(
-                child: Column(
+            : _data == null
+            ? const Center(child: Text('Failed to load demand forecast'))
+            : RefreshIndicator(
+                onRefresh: _loadDashboard,
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(18, 14, 18, 28),
                   children: [
-                    // 🔷 TOP HEADER
                     Container(
-                      height: 120,
-                      width: double.infinity,
-                      decoration: const BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [Color(0xFF4A90E2), Color(0xFF357ABD)],
+                      padding: const EdgeInsets.all(24),
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFF0F766E), Color(0xFF2563EB)],
                           begin: Alignment.topLeft,
                           end: Alignment.bottomRight,
                         ),
-                        borderRadius: BorderRadius.only(
-                          bottomLeft: Radius.circular(30),
-                          bottomRight: Radius.circular(30),
-                        ),
+                        borderRadius: BorderRadius.circular(28),
                       ),
-                      child: const Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              Icons.trending_up,
-                              size: 40,
-                              color: Colors.white,
-                            ),
-                            SizedBox(height: 10),
-                            Text(
-                              "Demand Forecast",
-                              style: TextStyle(
-                                fontSize: 20,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.white,
-                              ),
-                            ),
-                            SizedBox(height: 5),
-                            Text(
-                              "Smart preparation suggestions",
-                              style: TextStyle(
-                                fontSize: 14,
-                                color: Colors.white70,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-
-                    const SizedBox(height: 20),
-
-                    // 🔷 FORMULA INFO
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 20),
-                      child: Card(
-                        elevation: 8,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Padding(
-                          padding: const EdgeInsets.all(20),
-                          child: Column(
-                            children: [
-                              const Text(
-                                "Suggested Preparation Formula",
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              const SizedBox(height: 10),
-                              Text(
-                                data!["formula"] ??
-                                    "predicted_demand + safety_margin (10%)",
-                                style: const TextStyle(
-                                  fontSize: 14,
-                                  color: Colors.black87,
-                                ),
-                              ),
-                              const SizedBox(height: 5),
-                              Text(
-                                "Example: ${data!["example"] ?? "120 + 10% = 132"}",
-                                style: const TextStyle(
-                                  fontSize: 14,
-                                  color: Colors.grey,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-
-                    const SizedBox(height: 20),
-
-                    // 🔷 ML RESULT CARDS
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 20),
                       child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Align(
-                            alignment: Alignment.centerLeft,
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 8,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
                             child: Text(
-                              "Food Item Demand Forecast",
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
+                              '${model['name'] ?? 'Model'} • ${summary['time_slot'] ?? 'Current slot'}',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w700,
                               ),
                             ),
                           ),
-                          const SizedBox(height: 12),
-                          ...?data?["dashboard"]?.map<Widget>((item) {
-                            final foodItem =
-                                item["food_item"]?.toString() ?? "Unknown";
-                            final predicted = _toInt(item["predicted_demand"]);
-                            final suggested = _toInt(
-                              item["suggested_preparation"],
-                            );
-                            final actual = _toInt(item["actual_sold"]);
-                            final accuracy = _toDouble(
-                              item["accuracy_percentage"],
-                            );
-
-                            return Card(
-                              elevation: 6,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(16),
-                              ),
-                              margin: const EdgeInsets.only(bottom: 12),
-                              child: Padding(
-                                padding: const EdgeInsets.all(16),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      foodItem,
-                                      style: const TextStyle(
-                                        fontSize: 18,
-                                        fontWeight: FontWeight.w700,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 8),
-                                    _metricRow(
-                                      'Predicted Demand',
-                                      predicted.toString(),
-                                    ),
-                                    _metricRow(
-                                      'Suggested Preparation',
-                                      suggested.toString(),
-                                      color: Colors.green.shade700,
-                                    ),
-                                    _metricRow(
-                                      'Actual Sales',
-                                      actual.toString(),
-                                    ),
-                                    _metricRow(
-                                      'Prediction Accuracy',
-                                      '${accuracy.toStringAsFixed(1)}%',
-                                      color: Colors.blue.shade700,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            );
-                          }).toList(),
+                          const SizedBox(height: 16),
+                          const Text(
+                            'Use live demand forecasting to prepare smarter, reduce stockouts, and limit waste.',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 28,
+                              fontWeight: FontWeight.w800,
+                              height: 1.2,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          Text(
+                            _data?['formula']?.toString() ??
+                                'Predicted demand + safety margin',
+                            style: const TextStyle(
+                              color: Color(0xFFE0F2FE),
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
                         ],
                       ),
                     ),
-
-                    const SizedBox(height: 20),
+                    const SizedBox(height: 18),
+                    GridView.count(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      crossAxisCount: MediaQuery.of(context).size.width > 900 ? 4 : 2,
+                      crossAxisSpacing: 12,
+                      mainAxisSpacing: 12,
+                      childAspectRatio: 1.25,
+                      children: [
+                        _summaryChip(
+                          'Items forecasted',
+                          '${_toInt(summary['items_forecasted'])}',
+                          const Color(0xFF2563EB),
+                        ),
+                        _summaryChip(
+                          'Predicted total demand',
+                          '${_toInt(summary['total_predicted_demand'])}',
+                          const Color(0xFF0F766E),
+                        ),
+                        _summaryChip(
+                          'Suggested total prep',
+                          '${_toInt(summary['total_suggested_preparation'])}',
+                          const Color(0xFF7C3AED),
+                        ),
+                        _summaryChip(
+                          'Avg confidence',
+                          '${_toDouble(summary['average_confidence']).toStringAsFixed(1)}%',
+                          const Color(0xFFF97316),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 18),
+                    if ((_data?['low_confidence_items'] as List<dynamic>? ?? const [])
+                        .isNotEmpty)
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFFF7ED),
+                          borderRadius: BorderRadius.circular(18),
+                          border: Border.all(color: const Color(0xFFFED7AA)),
+                        ),
+                        child: Text(
+                          'Low-confidence items need operator review: ${(_data?['low_confidence_items'] as List<dynamic>).join(', ')}',
+                          style: const TextStyle(
+                            color: Color(0xFF9A3412),
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    if ((_data?['low_confidence_items'] as List<dynamic>? ?? const [])
+                        .isNotEmpty)
+                      const SizedBox(height: 18),
+                    ...rows.map(_buildForecastCard),
                   ],
                 ),
               ),

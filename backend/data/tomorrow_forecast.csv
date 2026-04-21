@@ -1,0 +1,5 @@
+target_date,time_slot,food_item,predicted_demand,suggested_preparation,confidence_score,confidence_label,recommended_action
+2026-04-22,11:00-13:00,Veg Wrap,86,121,35.0,Low,Keep preparation close to the recent average.
+2026-04-22,11:00-13:00,Masala Dosa,68,75,35.0,Low,Keep preparation close to the recent average.
+2026-04-22,11:00-13:00,Idli,68,75,35.0,Low,Keep preparation close to the recent average.
+2026-04-22,11:00-13:00,Cheese Pizza,60,66,35.0,Low,Keep preparation close to the recent average.

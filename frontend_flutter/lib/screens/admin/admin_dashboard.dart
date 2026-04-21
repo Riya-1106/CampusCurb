@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../services/auth_service.dart';
 import '../auth/login_screen.dart';
+import 'menu_upload_screen.dart';
 import 'menu_approval_screen.dart';
 import 'user_management_screen.dart';
 import 'admin_waste_monitoring_screen.dart';
@@ -235,11 +236,11 @@ class _AdminDashboardState extends State<AdminDashboard> with TickerProviderStat
           child: ListView(
             scrollDirection: Axis.horizontal,
             children: [
-              _buildModernQuickAction("Add User", Icons.person_add_rounded, const Color(0xFF10B981)),
-              _buildModernQuickAction("New Menu", Icons.add_circle_rounded, const Color(0xFF3B82F6)),
-              _buildModernQuickAction("View Reports", Icons.assessment_rounded, const Color(0xFF8B5CF6)),
-              _buildModernQuickAction("Settings", Icons.settings_rounded, const Color(0xFFF59E0B)),
-              _buildModernQuickAction("Help", Icons.help_rounded, const Color(0xFFEF4444)),
+              _buildModernQuickAction(context, "Add User", Icons.person_add_rounded, const Color(0xFF10B981), null),
+              _buildModernQuickAction(context, "New Menu", Icons.add_circle_rounded, const Color(0xFF3B82F6), const MenuUploadScreen()),
+              _buildModernQuickAction(context, "View Reports", Icons.assessment_rounded, const Color(0xFF8B5CF6), null),
+              _buildModernQuickAction(context, "Settings", Icons.settings_rounded, const Color(0xFFF59E0B), null),
+              _buildModernQuickAction(context, "Help", Icons.help_rounded, const Color(0xFFEF4444), null),
             ],
           ),
         ),
@@ -401,14 +402,27 @@ class _AdminDashboardState extends State<AdminDashboard> with TickerProviderStat
   }
 
   // Modern Quick Action Card
-  Widget _buildModernQuickAction(String title, IconData icon, Color color) {
+  Widget _buildModernQuickAction(
+    BuildContext context,
+    String title,
+    IconData icon,
+    Color color,
+    Widget? screen,
+  ) {
     return Container(
       width: 100,
       margin: const EdgeInsets.only(right: 16),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          onTap: () {},
+          onTap: screen == null
+              ? null
+              : () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => screen),
+                  );
+                },
           borderRadius: BorderRadius.circular(16),
           child: Container(
             padding: const EdgeInsets.all(12),

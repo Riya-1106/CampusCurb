@@ -7,16 +7,35 @@ import 'api_config.dart';
 class PredictionService {
   static String get _baseUrl => ApiConfig.baseUrl;
   static const Duration _rewardTimeout = Duration(milliseconds: 1200);
+  static const Duration _analyticsTimeout = Duration(seconds: 6);
+  static const Duration _operationsTimeout = Duration(seconds: 8);
 
   static String get backendBaseUrl => _baseUrl;
 
+  String _extractErrorMessage(http.Response response, String fallback) {
+    try {
+      final decoded = json.decode(response.body);
+      if (decoded is Map<String, dynamic>) {
+        return decoded['detail']?.toString() ??
+            decoded['message']?.toString() ??
+            fallback;
+      }
+    } catch (_) {
+      // Use fallback message below.
+    }
+    final body = response.body.trim();
+    return body.isEmpty ? fallback : body;
+  }
+
   /// Calls the backend /predict endpoint with a payload and returns the response.
   Future<Map<String, dynamic>> predictDemand(Map<String, dynamic> input) async {
-    final response = await http.post(
-      Uri.parse('$_baseUrl/predict'),
-      headers: {'Content-Type': 'application/json'},
-      body: json.encode(input),
-    );
+    final response = await http
+        .post(
+          Uri.parse('$_baseUrl/predict'),
+          headers: {'Content-Type': 'application/json'},
+          body: json.encode(input),
+        )
+        .timeout(_analyticsTimeout);
 
     if (response.statusCode != 200) {
       throw Exception('Prediction request failed');
@@ -27,16 +46,69 @@ class PredictionService {
 
   /// Fetches the demand dashboard data from the backend.
   Future<Map<String, dynamic>> getDemandDashboard() async {
-    final response = await http.get(Uri.parse('$_baseUrl/demand-dashboard'));
+    final response = await http
+        .get(Uri.parse('$_baseUrl/demand-dashboard'))
+        .timeout(_analyticsTimeout);
     if (response.statusCode != 200) {
       throw Exception('Failed to load demand dashboard');
     }
     return json.decode(response.body) as Map<String, dynamic>;
   }
 
+  Future<Map<String, dynamic>> getMlOverview() async {
+    final response = await http
+        .get(Uri.parse('$_baseUrl/ml/overview'))
+        .timeout(_analyticsTimeout);
+    if (response.statusCode != 200) {
+      throw Exception('Failed to load ML overview');
+    }
+    return json.decode(response.body) as Map<String, dynamic>;
+  }
+
+  Future<Map<String, dynamic>> getCanteenOperations({
+    required String date,
+    required String timeSlot,
+  }) async {
+    final uri = Uri.parse('$_baseUrl/canteen/operations').replace(
+      queryParameters: {
+        'date': date,
+        'time_slot': timeSlot,
+      },
+    );
+    final response = await http.get(uri).timeout(_operationsTimeout);
+    if (response.statusCode != 200) {
+      throw Exception(_extractErrorMessage(response, 'Failed to load canteen operations'));
+    }
+    return json.decode(response.body) as Map<String, dynamic>;
+  }
+
+  Future<Map<String, dynamic>> saveCanteenOperations({
+    required String date,
+    required String timeSlot,
+    required List<Map<String, dynamic>> items,
+  }) async {
+    final response = await http
+        .post(
+          Uri.parse('$_baseUrl/canteen/operations'),
+          headers: {'Content-Type': 'application/json'},
+          body: json.encode({
+            'date': date,
+            'time_slot': timeSlot,
+            'items': items,
+          }),
+        )
+        .timeout(_operationsTimeout);
+    if (response.statusCode != 200) {
+      throw Exception(_extractErrorMessage(response, 'Failed to save canteen operations'));
+    }
+    return json.decode(response.body) as Map<String, dynamic>;
+  }
+
   /// Fetches the waste report from the backend.
   Future<Map<String, dynamic>> getWasteReport() async {
-    final response = await http.get(Uri.parse('$_baseUrl/waste-report'));
+    final response = await http
+        .get(Uri.parse('$_baseUrl/waste-report'))
+        .timeout(_analyticsTimeout);
     if (response.statusCode != 200) {
       throw Exception('Failed to load waste report');
     }
@@ -45,7 +117,9 @@ class PredictionService {
 
   /// Fetches the student behavior analytics from the backend.
   Future<Map<String, dynamic>> getStudentAnalytics() async {
-    final response = await http.get(Uri.parse('$_baseUrl/student-analytics'));
+    final response = await http
+        .get(Uri.parse('$_baseUrl/student-analytics'))
+        .timeout(_analyticsTimeout);
     if (response.statusCode != 200) {
       throw Exception('Failed to load student analytics');
     }
@@ -53,7 +127,9 @@ class PredictionService {
   }
 
   Future<Map<String, dynamic>> getPredictionAccuracy() async {
-    final response = await http.get(Uri.parse('$_baseUrl/prediction-accuracy'));
+    final response = await http
+        .get(Uri.parse('$_baseUrl/prediction-accuracy'))
+        .timeout(_analyticsTimeout);
     if (response.statusCode != 200) {
       throw Exception('Failed to load prediction accuracy');
     }

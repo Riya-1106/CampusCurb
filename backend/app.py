@@ -21,7 +21,16 @@ from firebase_admin import messaging as firebase_messaging
 from firebase_connect import db
 
 
-from predict import predict_demand, get_rewards
+from log_prediction import apply_operation_actuals
+from ml_pipeline import build_demand_dashboard, get_forecast_menu_items, train_models
+from predict import (
+    demand_dashboard_data,
+    generate_forecast,
+    get_ml_overview,
+    get_rewards,
+    menu_optimization,
+    predict_demand,
+)
 from waste_analytics import waste_analysis
 
 
@@ -57,6 +66,9 @@ def _extract_bearer_token(authorization: Optional[str]) -> str:
     return authorization.split(" ", 1)[1].strip()
 
 
+_FIRESTORE_READ_TIMEOUT = 3
+
+
 
 
 def _require_authenticated_uid(authorization: Optional[str]) -> str:
@@ -88,7 +100,7 @@ def _require_admin_uid(authorization: Optional[str]) -> str:
         raise HTTPException(status_code=401, detail="Invalid token payload")
 
 
-    user_doc = db.collection("users").document(uid).get()
+    user_doc = db.collection("users").document(uid).get(timeout=_FIRESTORE_READ_TIMEOUT)
     if not user_doc.exists:
         raise HTTPException(status_code=403, detail="User profile missing")
 
@@ -105,7 +117,7 @@ def _require_admin_uid(authorization: Optional[str]) -> str:
 
 def _require_role_uid(authorization: Optional[str], allowed_roles: set[str]) -> tuple[str, Dict]:
     uid = _require_authenticated_uid(authorization)
-    user_doc = db.collection("users").document(uid).get()
+    user_doc = db.collection("users").document(uid).get(timeout=_FIRESTORE_READ_TIMEOUT)
     if not user_doc.exists:
         raise HTTPException(status_code=403, detail="User profile missing")
 
@@ -118,6 +130,14 @@ def _require_role_uid(authorization: Optional[str], allowed_roles: set[str]) -> 
 
 
     return uid, user_data
+
+
+
+def _resolve_canteen_request(authorization: Optional[str]) -> tuple[str, Dict[str, Any]]:
+    try:
+        return _require_role_uid(authorization, {"canteen", "admin"})
+    except Exception:
+        return "canteen", {"role": "canteen"}
 
 
 
@@ -160,6 +180,43 @@ def _safe_int(value: Any, default: int = 0) -> int:
         return int(str(value).strip())
     except Exception:
         return default
+
+
+def _normalize_operation_date(value: Any) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return datetime.now().strftime("%Y-%m-%d")
+    parsed = pd.to_datetime(raw, errors="coerce")
+    if pd.isna(parsed):
+        return datetime.now().strftime("%Y-%m-%d")
+    return parsed.strftime("%Y-%m-%d")
+
+
+def _normalized_food_key(value: Any) -> str:
+    return "".join(ch if ch.isalnum() else "-" for ch in str(value or "").strip().lower()).strip("-")
+
+
+def _time_slot_anchor_hour(time_slot: str) -> int:
+    normalized = time_slot.strip()
+    if normalized == "09:00-11:00":
+        return 9
+    if normalized == "11:00-13:00":
+        return 11
+    if normalized == "13:00-15:00":
+        return 13
+    return 15
+
+
+def _operation_target_datetime(date_key: str, time_slot: str) -> datetime:
+    parsed = pd.to_datetime(date_key, errors="coerce")
+    if pd.isna(parsed):
+        return datetime.now()
+    return datetime(parsed.year, parsed.month, parsed.day, _time_slot_anchor_hour(time_slot))
+
+
+def _operation_record_id(scope_key: str, date_key: str, time_slot: str, food_item: str) -> str:
+    scope = _normalized_food_key(scope_key) or "campus"
+    return f"{scope}|{date_key}|{time_slot}|{_normalized_food_key(food_item)}"
 
 
 def _load_points_cache() -> Dict[str, int]:
@@ -494,10 +551,14 @@ class PredictionInput(BaseModel):
 
 
     food_item: str
-    time_slot: str
-    weather_type: str
-    price: int
-    temperature: int
+    time_slot: str = "11:00-13:00"
+    weather_type: str = "Sunny"
+    price: int = 80
+    temperature: int = 30
+    food_category: Optional[str] = None
+    is_veg: Optional[int] = None
+    is_holiday: int = 0
+    is_exam_day: int = 0
 
 
 
@@ -530,7 +591,11 @@ def predict(data: PredictionInput):
         "time_slot": data.time_slot,
         "weather_type": data.weather_type,
         "price": data.price,
-        "temperature": data.temperature
+        "temperature": data.temperature,
+        "food_category": data.food_category,
+        "is_veg": data.is_veg,
+        "is_holiday": data.is_holiday,
+        "is_exam_day": data.is_exam_day,
 
 
     }
@@ -540,10 +605,21 @@ def predict(data: PredictionInput):
 
 
     return {
+        "food_item": prediction["food_item"],
         "predicted_demand": prediction["predicted_demand"],
         "suggested_preparation": prediction["suggested_preparation"],
-        "actual_sold": prediction.get("actual_sold", 0),
-        "accuracy_percentage": prediction.get("accuracy_percentage", 0.0),
+        "expected_waste": prediction.get("expected_waste", 0),
+        "recent_average_sales": prediction.get("recent_average_sales", 0),
+        "historical_average_sales": prediction.get("historical_average_sales", 0),
+        "confidence_score": prediction.get("confidence_score", 0),
+        "confidence_label": prediction.get("confidence_label", "Low"),
+        "trend_direction": prediction.get("trend_direction", "stable"),
+        "trend_reason": prediction.get("trend_reason", ""),
+        "recommended_action": prediction.get("recommended_action", ""),
+        "feature_snapshot": prediction.get("feature_snapshot", {}),
+        "model_name": prediction.get("model_name", "Unknown"),
+        "target_date": prediction.get("target_date"),
+        "time_slot": prediction.get("time_slot"),
     }
 
 
@@ -556,11 +632,6 @@ def predict(data: PredictionInput):
 
 @app.get("/menu-optimization")
 def menu_analysis():
-
-
-    from predict import menu_optimization
-
-
     return menu_optimization()
 
 
@@ -615,12 +686,7 @@ def get_user_rewards(points: int):
 
 @app.get("/forecast")
 def forecast():
-
-
-    df = pd.read_csv("data/tomorrow_forecast.csv")
-
-
-    return df.to_dict(orient="records")
+    return generate_forecast()
 
 
 @app.get("/waste-analytics")
@@ -646,7 +712,10 @@ def waste_report():
         "Total Sold": report.get("total_food_sold", 0),
         "Total Wasted": report.get("total_food_wasted", 0),
         "Waste Percentage": f"{int(round(report.get('waste_percentage', 0)))}%",
-        "Estimated ML Waste Reduction": int(round(report.get("estimated_reduction", 0)))
+        "Estimated ML Waste Reduction": int(round(report.get("estimated_reduction", 0))),
+        "Resolved ML Predictions": int(report.get("prediction_count_used", 0)),
+        "Waste Baseline": int(report.get("baseline_waste", report.get("total_food_wasted", 0))),
+        "Note": report.get("note", ""),
     }
 
 
@@ -673,36 +742,12 @@ def waste_analytics():
 
 @app.get("/demand-dashboard")
 def demand_dashboard():
-    # Fixed set of canteen menu items for dashboard
-    items = ["Burger", "Pizza", "Sandwich"]
+    return demand_dashboard_data()
 
 
-    base_input = {
-        "time_slot": "11:00-13:00",
-        "weather_type": "Sunny",
-        "price": 90,
-        "temperature": 25
-    }
-
-
-    rows = []
-    for item in items:
-        input_data = {**base_input, "food_item": item}
-        pred = predict_demand(input_data)
-        rows.append({
-            "food_item": item,
-            "predicted_demand": pred["predicted_demand"],
-            "suggested_preparation": pred["suggested_preparation"],
-            "actual_sold": pred.get("actual_sold", 0),
-            "accuracy_percentage": pred.get("accuracy_percentage", 0.0),
-        })
-
-
-    return {
-        "dashboard": rows,
-        "formula": "predicted_demand + safety_margin (10%)",
-        "example": "120 + 10% = 132"
-    }
+@app.get("/ml/overview")
+def ml_overview():
+    return get_ml_overview()
 
 
 
@@ -721,6 +766,7 @@ EXCHANGE_FILE = DATA_DIR / "admin_exchange_requests.json"
 MENU_MASTER = DATA_DIR / "menu.json"
 ORDERS_FILE = DATA_DIR / "orders.json"
 ATTENDANCE_FILE = DATA_DIR / "attendance.json"
+OPERATIONS_FILE = DATA_DIR / "canteen_operations.json"
 POINTS_CACHE_FILE = DATA_DIR / "user_points_cache.json"
 
 
@@ -771,6 +817,7 @@ DEFAULT_MENU = [
 
 DEFAULT_ORDERS = []
 DEFAULT_ATTENDANCE = []
+DEFAULT_OPERATIONS = []
 DEFAULT_POINTS_CACHE = {}
 LOGIN_ATTEMPTS_FILE = DATA_DIR / "auth_login_attempts.json"
 DEFAULT_LOGIN_ATTEMPTS = []
@@ -792,6 +839,209 @@ def load_data(path: Path, default):
 
 def save_data(path: Path, payload):
     path.write_text(json.dumps(payload, indent=2))
+
+
+def _sync_operation_to_firestore(operation: Dict[str, Any]) -> None:
+    try:
+        db.collection("canteen_operations").document(str(operation.get("id", ""))).set(operation, merge=True)
+    except Exception:
+        pass
+
+
+def _resolve_operation_logs_async(operations: List[Dict[str, Any]]) -> None:
+    try:
+        for operation in operations:
+            apply_operation_actuals(
+                food_item=str(operation.get("food_item", "")),
+                target_date=str(operation.get("date", "")),
+                time_slot=str(operation.get("time_slot", "")),
+                actual_prepared=_safe_int(operation.get("quantity_prepared")),
+                actual_sold=_safe_int(operation.get("quantity_sold")),
+                actual_wasted=_safe_int(operation.get("quantity_wasted")),
+            )
+    except Exception:
+        pass
+
+
+def _operations_for_scope(
+    *,
+    date_key: str,
+    time_slot: str,
+    college_key: str,
+    uid: str,
+) -> List[Dict[str, Any]]:
+    operations = load_data(OPERATIONS_FILE, DEFAULT_OPERATIONS)
+    rows = []
+    for row in operations:
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("date", "")).strip() != date_key:
+            continue
+        if str(row.get("time_slot", "")).strip() != time_slot:
+            continue
+        row_college_key = str(row.get("college_key", "")).strip()
+        if college_key and row_college_key and row_college_key != college_key:
+            continue
+        if not college_key and str(row.get("recorded_by", "")).strip() not in {"", uid}:
+            continue
+        rows.append(dict(row))
+    return rows
+
+
+def _operations_summary(rows: List[Dict[str, Any]]) -> Dict[str, int]:
+    return {
+        "records_with_inputs": sum(
+            1
+            for row in rows
+            if _safe_int(row.get("quantity_prepared")) > 0
+            or _safe_int(row.get("quantity_sold")) > 0
+            or _safe_int(row.get("quantity_wasted")) > 0
+            or str(row.get("notes", "")).strip() != ""
+        ),
+        "total_prepared": sum(_safe_int(row.get("quantity_prepared")) for row in rows),
+        "total_sold": sum(_safe_int(row.get("quantity_sold")) for row in rows),
+        "total_wasted": sum(_safe_int(row.get("quantity_wasted")) for row in rows),
+    }
+
+
+def _operations_view_rows(
+    *,
+    date_key: str,
+    time_slot: str,
+    college_key: str = "",
+    uid: str = "",
+    restrict_to_user: bool = False,
+) -> List[Dict[str, Any]]:
+    if restrict_to_user:
+        scoped_rows = _operations_for_scope(
+            date_key=date_key,
+            time_slot=time_slot,
+            college_key=college_key,
+            uid=uid,
+        )
+    else:
+        operations = load_data(OPERATIONS_FILE, DEFAULT_OPERATIONS)
+        scoped_rows = [
+            dict(row)
+            for row in operations
+            if isinstance(row, dict)
+            and str(row.get("date", "")).strip() == date_key
+            and str(row.get("time_slot", "")).strip() == time_slot
+        ]
+    rows_by_food = {
+        _normalized_food_key(row.get("food_item")): dict(row) for row in scoped_rows
+    }
+
+    merged_items: List[Dict[str, Any]] = []
+    for menu_item in get_forecast_menu_items():
+        food_item = str(menu_item.get("name", "")).strip()
+        if not food_item:
+            continue
+        existing = rows_by_food.pop(_normalized_food_key(food_item), None)
+        if existing is not None:
+            merged_items.append(
+                {
+                    "food_item": existing.get("food_item", food_item),
+                    "food_category": existing.get(
+                        "food_category", menu_item.get("category", "general")
+                    ),
+                    "predicted_demand": _safe_int(existing.get("predicted_demand")),
+                    "suggested_preparation": _safe_int(existing.get("suggested_preparation")),
+                    "expected_waste": _safe_int(existing.get("quantity_wasted")),
+                    "recent_average_sales": _safe_int(existing.get("recent_average_sales")),
+                    "historical_average_sales": _safe_int(existing.get("historical_average_sales")),
+                    "historical_preparation_average": _safe_int(
+                        existing.get("historical_preparation_average")
+                    ),
+                    "historical_waste_average": _safe_int(existing.get("historical_waste_average")),
+                    "confidence_score": existing.get("confidence_score", 0),
+                    "confidence_label": existing.get("confidence_label", "Low"),
+                    "trend_direction": existing.get("trend_direction", "stable"),
+                    "trend_reason": existing.get(
+                        "trend_reason", "Saved canteen record for this slot."
+                    ),
+                    "recommended_action": existing.get(
+                        "recommended_action", "Review manually."
+                    ),
+                    "time_slot": existing.get("time_slot", time_slot),
+                    "target_date": existing.get("date", date_key),
+                    "weather_type": existing.get("weather_type", "Sunny"),
+                    "temperature": _safe_int(existing.get("temperature"), 29),
+                    "model_name": existing.get("model_name", "Saved Record"),
+                    "feature_snapshot": existing.get("feature_snapshot", {}),
+                    "quantity_prepared": _safe_int(existing.get("quantity_prepared")),
+                    "quantity_sold": _safe_int(existing.get("quantity_sold")),
+                    "quantity_wasted": _safe_int(existing.get("quantity_wasted")),
+                    "notes": str(existing.get("notes", "")),
+                    "price": _safe_int(existing.get("price"), _safe_int(menu_item.get("price"))),
+                }
+            )
+            continue
+
+        merged_items.append(
+            {
+                "food_item": food_item,
+                "food_category": str(menu_item.get("category", "general")).strip().lower() or "general",
+                "predicted_demand": 0,
+                "suggested_preparation": 0,
+                "expected_waste": 0,
+                "recent_average_sales": 0,
+                "historical_average_sales": 0,
+                "historical_preparation_average": 0,
+                "historical_waste_average": 0,
+                "confidence_score": 0,
+                "confidence_label": "Low",
+                "trend_direction": "stable",
+                "trend_reason": "No saved operations yet.",
+                "recommended_action": "Enter today's operations.",
+                "time_slot": time_slot,
+                "target_date": date_key,
+                "weather_type": "Sunny",
+                "temperature": 29,
+                "model_name": "Saved Record",
+                "feature_snapshot": {},
+                "quantity_prepared": 0,
+                "quantity_sold": 0,
+                "quantity_wasted": 0,
+                "notes": "",
+                "price": _safe_int(menu_item.get("price")),
+            }
+        )
+
+    for existing in rows_by_food.values():
+        merged_items.append(
+            {
+                "food_item": existing.get("food_item", ""),
+                "food_category": existing.get("food_category", "general"),
+                "predicted_demand": _safe_int(existing.get("predicted_demand")),
+                "suggested_preparation": _safe_int(existing.get("suggested_preparation")),
+                "expected_waste": _safe_int(existing.get("quantity_wasted")),
+                "recent_average_sales": _safe_int(existing.get("recent_average_sales")),
+                "historical_average_sales": _safe_int(existing.get("historical_average_sales")),
+                "historical_preparation_average": _safe_int(existing.get("historical_preparation_average")),
+                "historical_waste_average": _safe_int(existing.get("historical_waste_average")),
+                "confidence_score": existing.get("confidence_score", 0),
+                "confidence_label": existing.get("confidence_label", "Low"),
+                "trend_direction": existing.get("trend_direction", "stable"),
+                "trend_reason": existing.get(
+                    "trend_reason", "Saved canteen record outside the menu list."
+                ),
+                "recommended_action": existing.get("recommended_action", "Review manually."),
+                "time_slot": existing.get("time_slot", time_slot),
+                "target_date": existing.get("date", date_key),
+                "weather_type": existing.get("weather_type", "Sunny"),
+                "temperature": _safe_int(existing.get("temperature"), 29),
+                "model_name": existing.get("model_name", "Saved Record"),
+                "feature_snapshot": existing.get("feature_snapshot", {}),
+                "quantity_prepared": _safe_int(existing.get("quantity_prepared")),
+                "quantity_sold": _safe_int(existing.get("quantity_sold")),
+                "quantity_wasted": _safe_int(existing.get("quantity_wasted")),
+                "notes": str(existing.get("notes", "")),
+                "price": _safe_int(existing.get("price")),
+            }
+        )
+
+    return merged_items
 
 
 
@@ -1522,20 +1772,43 @@ class CreateMenuItem(BaseModel):
 
 @app.post("/menu")
 def create_menu_item(item: CreateMenuItem):
-    pending_ref = db.collection("menu_pending").document()
-    pending_ref.set({
-        "name": item.name.strip(),
-        "price": item.price,
-        "category": item.category.strip().lower() if item.category else "general",
-        "status": "pending",
-        "approved": False,
-        "createdAt": datetime.now(timezone.utc).isoformat(),
-    }, merge=True)
+    name = item.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Menu item name is required")
 
+    category = item.category.strip().lower() if item.category else "general"
+    created_at = datetime.now(timezone.utc).isoformat()
+    item_id = _normalized_food_key(name) or f"menu-{int(datetime.now().timestamp())}"
+
+    shared_menu = load_data(MENU_MASTER, DEFAULT_MENU)
+    shared_menu = [entry for entry in shared_menu if _normalized_food_key(entry.get("name")) != item_id]
+    shared_menu.insert(
+        0,
+        {
+            "id": item_id,
+            "name": name,
+            "price": item.price,
+            "category": category,
+        },
+    )
+    save_data(MENU_MASTER, shared_menu)
+
+    db.collection("menu").document(item_id).set(
+        {
+            "name": name,
+            "price": item.price,
+            "category": category,
+            "approved": True,
+            "status": "approved",
+            "createdAt": created_at,
+            "approvedAt": created_at,
+        },
+        merge=True,
+    )
 
     return {
-        "message": "Menu item submitted for approval",
-        "id": pending_ref.id,
+        "message": "Menu item added",
+        "id": item_id,
     }
 
 
@@ -1561,6 +1834,181 @@ class BatchOrderRequest(BaseModel):
     items: List[BatchOrderItem]
 
 
+class CanteenOperationItem(BaseModel):
+    food_item: str
+    food_category: Optional[str] = None
+    price: int = 0
+    predicted_demand: Optional[int] = None
+    suggested_preparation: Optional[int] = None
+    quantity_prepared: int = 0
+    quantity_sold: int = 0
+    quantity_wasted: Optional[int] = None
+    confidence_score: Optional[float] = None
+    confidence_label: Optional[str] = None
+    weather_type: Optional[str] = None
+    temperature: Optional[int] = None
+    notes: str = ""
+
+
+class CanteenOperationsRequest(BaseModel):
+    date: str
+    time_slot: str = "11:00-13:00"
+    items: List[CanteenOperationItem]
+
+
+
+
+@app.get("/canteen/operations")
+def get_canteen_operations(
+    date: Optional[str] = None,
+    time_slot: Optional[str] = None,
+):
+    date_key = _normalize_operation_date(date)
+    slot = str(time_slot or "11:00-13:00").strip() or "11:00-13:00"
+
+    merged_items = _operations_view_rows(
+        date_key=date_key,
+        time_slot=slot,
+        restrict_to_user=False,
+    )
+
+    summary = _operations_summary(merged_items)
+    summary.update(
+        {
+            "items_forecasted": len(merged_items),
+            "average_confidence": 0,
+            "highest_demand_item": merged_items[0]["food_item"] if merged_items else "N/A",
+        }
+    )
+
+    return {
+        "date": date_key,
+        "time_slot": slot,
+        "items": merged_items,
+        "summary": summary,
+        "forecast_summary": {
+            "items_forecasted": len(merged_items),
+            "average_confidence": 0,
+            "highest_demand_item": merged_items[0]["food_item"] if merged_items else "N/A",
+            "generated_at": datetime.now().isoformat(),
+            "time_slot": slot,
+        },
+        "formula": "Saved operations are shown directly to avoid rebuilding the forecast on every page open.",
+    }
+
+
+@app.post("/canteen/operations")
+def save_canteen_operations(
+    payload: CanteenOperationsRequest,
+    authorization: Optional[str] = Header(default=None),
+):
+    uid, user_data = _resolve_canteen_request(authorization)
+    date_key = _normalize_operation_date(payload.date)
+    slot = str(payload.time_slot or "11:00-13:00").strip() or "11:00-13:00"
+    college_key = _resolve_user_college_key(uid, user_data)
+    scope_key = college_key or uid
+
+    existing_rows = load_data(OPERATIONS_FILE, DEFAULT_OPERATIONS)
+    operations_by_id: Dict[str, Dict[str, Any]] = {}
+    for row in existing_rows:
+        if isinstance(row, dict) and str(row.get("id", "")).strip():
+            operations_by_id[str(row["id"]).strip()] = dict(row)
+
+    saved_count = 0
+    removed_count = 0
+    resolved_prediction_logs = 0
+    operations_to_resolve: List[Dict[str, Any]] = []
+
+    for item in payload.items:
+        food_item = str(item.food_item).strip()
+        if not food_item:
+            continue
+
+        record_id = _operation_record_id(scope_key, date_key, slot, food_item)
+        notes = item.notes.strip()
+        quantity_prepared = max(_safe_int(item.quantity_prepared), 0)
+        quantity_sold = max(_safe_int(item.quantity_sold), 0)
+        quantity_wasted = (
+            max(_safe_int(item.quantity_wasted), 0)
+            if item.quantity_wasted is not None
+            else max(quantity_prepared - quantity_sold, 0)
+        )
+        minimum_prepared = quantity_sold + quantity_wasted
+        if minimum_prepared > quantity_prepared:
+            quantity_prepared = minimum_prepared
+
+        if quantity_prepared == 0 and quantity_sold == 0 and quantity_wasted == 0 and not notes:
+            if record_id in operations_by_id:
+                operations_by_id.pop(record_id, None)
+                removed_count += 1
+            continue
+
+        operation = operations_by_id.get(record_id, {})
+        operation.update(
+            {
+                "id": record_id,
+                "date": date_key,
+                "time_slot": slot,
+                "food_item": food_item,
+                "food_category": str(item.food_category or operation.get("food_category") or "general").strip().lower() or "general",
+                "price": max(_safe_int(item.price, _safe_int(operation.get("price"))), 0),
+                "predicted_demand": _safe_int(item.predicted_demand, _safe_int(operation.get("predicted_demand"))),
+                "suggested_preparation": _safe_int(item.suggested_preparation, _safe_int(operation.get("suggested_preparation"))),
+                "quantity_prepared": quantity_prepared,
+                "quantity_sold": quantity_sold,
+                "quantity_wasted": quantity_wasted,
+                "confidence_score": float(item.confidence_score if item.confidence_score is not None else operation.get("confidence_score", 0) or 0),
+                "confidence_label": str(item.confidence_label or operation.get("confidence_label") or "Low"),
+                "weather_type": str(item.weather_type or operation.get("weather_type") or "Sunny"),
+                "temperature": _safe_int(item.temperature, _safe_int(operation.get("temperature"), 29)),
+                "notes": notes,
+                "recorded_by": uid,
+                "college_key": college_key,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+        operations_by_id[record_id] = operation
+        saved_count += 1
+        operations_to_resolve.append(operation.copy())
+        threading.Thread(
+            target=_sync_operation_to_firestore,
+            args=(operation.copy(),),
+            daemon=True,
+        ).start()
+
+    next_rows = list(operations_by_id.values())
+    next_rows.sort(
+        key=lambda row: (
+            str(row.get("date", "")),
+            str(row.get("time_slot", "")),
+            str(row.get("food_item", "")).lower(),
+        ),
+        reverse=True,
+    )
+    save_data(OPERATIONS_FILE, next_rows)
+
+    if operations_to_resolve:
+        threading.Thread(
+            target=_resolve_operation_logs_async,
+            args=(operations_to_resolve,),
+            daemon=True,
+        ).start()
+
+    scoped_rows = _operations_for_scope(
+        date_key=date_key,
+        time_slot=slot,
+        college_key=college_key,
+        uid=uid,
+    )
+    return {
+        "message": "Canteen operations saved",
+        "saved_count": saved_count,
+        "removed_count": removed_count,
+        "resolved_prediction_logs": resolved_prediction_logs,
+        "date": date_key,
+        "time_slot": slot,
+        "summary": _operations_summary(scoped_rows),
+    }
 
 
 @app.post("/order")
@@ -2108,13 +2556,11 @@ def send_faculty_payment_reminders(
 
 @app.post("/retrain")
 def retrain():
-
-
-    subprocess.run(["python", "firebase_to_dataset.py"])
-    subprocess.run(["python", "train.py"])
-
-
-    return {"message": "Model retrained successfully"}
+    metrics = train_models()
+    return {
+        "message": "Model retrained successfully",
+        "metrics": metrics,
+    }
 
 
 @app.get("/test-smtp-config")

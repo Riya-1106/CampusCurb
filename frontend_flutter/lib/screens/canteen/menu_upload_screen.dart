@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import '../../services/campus_service.dart';
+
+import '../../services/admin_service.dart';
 
 class MenuUploadScreen extends StatefulWidget {
   const MenuUploadScreen({super.key});
@@ -9,11 +10,10 @@ class MenuUploadScreen extends StatefulWidget {
 }
 
 class _MenuUploadScreenState extends State<MenuUploadScreen> {
+  final AdminService _adminService = AdminService();
   final TextEditingController nameController = TextEditingController();
   final TextEditingController priceController = TextEditingController();
-  String _selectedCategory = 'general';
-
-  final CampusService _service = CampusService();
+  final TextEditingController categoryController = TextEditingController(text: 'general');
 
   Future<void> addMenuItem() async {
     if (nameController.text.isEmpty || priceController.text.isEmpty) {
@@ -24,16 +24,20 @@ class _MenuUploadScreenState extends State<MenuUploadScreen> {
     }
 
     try {
-      await _service.addMenuItem(
-        name: nameController.text,
+      final category = categoryController.text.trim().isEmpty
+          ? 'general'
+          : categoryController.text.trim();
+      await _adminService.createMenuItem(
+        name: nameController.text.trim(),
         price: int.parse(priceController.text),
-        category: _selectedCategory,
+        category: category,
       );
       if (!mounted) return;
       nameController.clear();
       priceController.clear();
+      categoryController.text = 'general';
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Menu item sent for admin approval")),
+        const SnackBar(content: Text("Menu item added to the shared menu")),
       );
     } catch (e) {
       if (!mounted) return;
@@ -46,62 +50,138 @@ class _MenuUploadScreenState extends State<MenuUploadScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("Upload Menu")),
-
-      body: Padding(
+      backgroundColor: const Color(0xFFF5F7FB),
+      appBar: AppBar(
+        title: const Text('Upload Menu'),
+        centerTitle: false,
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.white,
+      ),
+      body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            TextField(
+            Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF0F766E), Color(0xFF2563EB)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(28),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF2563EB).withValues(alpha: 0.18),
+                    blurRadius: 24,
+                    offset: const Offset(0, 16),
+                  ),
+                ],
+              ),
+              child: const Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Publish a new food item',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 26,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  SizedBox(height: 10),
+                  Text(
+                    'The item is written to the shared menu immediately, so students can see it after refresh.',
+                    style: TextStyle(
+                      color: Colors.white70,
+                      fontSize: 15,
+                      height: 1.4,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+            _fieldCard(
+              label: 'Food Name',
               controller: nameController,
-              decoration: const InputDecoration(
-                labelText: "Food Name",
-                border: OutlineInputBorder(),
-              ),
+              hintText: 'Veg Wrap',
+              icon: Icons.restaurant_rounded,
             ),
-
-            const SizedBox(height: 20),
-
-            TextField(
-              controller: priceController,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                labelText: "Price",
-                border: OutlineInputBorder(),
-              ),
-            ),
-
-            const SizedBox(height: 20),
-
-            DropdownButtonFormField<String>(
-              initialValue: _selectedCategory,
-              decoration: const InputDecoration(
-                labelText: 'Category',
-                border: OutlineInputBorder(),
-              ),
-              items: const [
-                DropdownMenuItem(value: 'general', child: Text('General')),
-                DropdownMenuItem(value: 'breakfast', child: Text('Breakfast')),
-                DropdownMenuItem(value: 'lunch', child: Text('Lunch')),
-                DropdownMenuItem(value: 'snacks', child: Text('Snacks')),
-                DropdownMenuItem(value: 'beverage', child: Text('Beverage')),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                Expanded(
+                  child: _fieldCard(
+                    label: 'Price',
+                    controller: priceController,
+                    hintText: '80',
+                    icon: Icons.currency_rupee_rounded,
+                    keyboardType: TextInputType.number,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _fieldCard(
+                    label: 'Category',
+                    controller: categoryController,
+                    hintText: 'general',
+                    icon: Icons.category_rounded,
+                  ),
+                ),
               ],
-              onChanged: (value) {
-                if (value != null) {
-                  setState(() {
-                    _selectedCategory = value;
-                  });
-                }
-              },
             ),
-
             const SizedBox(height: 20),
-
-            ElevatedButton(
+            FilledButton.icon(
               onPressed: addMenuItem,
-              child: const Text("Submit For Approval"),
+              icon: const Icon(Icons.publish_rounded),
+              label: const Text('Publish Menu Item'),
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFF0F766E),
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 18),
+                minimumSize: const Size.fromHeight(56),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(18),
+                ),
+              ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _fieldCard({
+    required String label,
+    required TextEditingController controller,
+    required String hintText,
+    required IconData icon,
+    TextInputType keyboardType = TextInputType.text,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 14,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: TextField(
+        controller: controller,
+        keyboardType: keyboardType,
+        decoration: InputDecoration(
+          labelText: label,
+          hintText: hintText,
+          prefixIcon: Icon(icon),
+          border: InputBorder.none,
         ),
       ),
     );

@@ -15,7 +15,7 @@ class MenuScreen extends StatefulWidget {
   State<MenuScreen> createState() => _MenuScreenState();
 }
 
-class _MenuScreenState extends State<MenuScreen> {
+class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   final CampusService _service = CampusService();
   final TextEditingController _searchController = TextEditingController();
 
@@ -30,8 +30,17 @@ class _MenuScreenState extends State<MenuScreen> {
   final Map<String, _CartLine> _cart = {};
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (state == AppLifecycleState.resumed) {
+      _loadMenu();
+    }
+  }
+
+  @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _searchController.text = widget.initialSearchQuery;
     _searchQuery = widget.initialSearchQuery.trim();
     _restoreCart();
@@ -40,6 +49,7 @@ class _MenuScreenState extends State<MenuScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _searchController.dispose();
     super.dispose();
   }

@@ -70,6 +70,7 @@ class _AdminAnalyticsScreenState extends State<AdminAnalyticsScreen> {
   final PredictionService _service = PredictionService();
   Map<String, dynamic>? studentData;
   Map<String, dynamic>? predictionData;
+  Map<String, dynamic>? mlOverviewData;
   bool loading = true;
 
   @override
@@ -86,11 +87,13 @@ class _AdminAnalyticsScreenState extends State<AdminAnalyticsScreen> {
       final results = await Future.wait([
         _service.getStudentAnalytics(),
         _service.getPredictionAccuracy(),
+        _service.getMlOverview(),
       ]);
       if (!mounted) return;
       setState(() {
         studentData = results[0];
         predictionData = results[1];
+        mlOverviewData = results[2];
         loading = false;
       });
     } catch (_) {
@@ -349,18 +352,147 @@ class _AdminAnalyticsScreenState extends State<AdminAnalyticsScreen> {
     final vegRatio = Map<String, dynamic>.from(
       analytics?['veg_vs_non_veg_ratio'] as Map<String, dynamic>? ?? {},
     );
+    final mlOverview = mlOverviewData;
+    final training = Map<String, dynamic>.from(
+      mlOverview?['training'] as Map<String, dynamic>? ?? {},
+    );
+    final demandSummary = Map<String, dynamic>.from(
+      mlOverview?['demand_summary'] as Map<String, dynamic>? ?? {},
+    );
+    final mlAccuracySummary = Map<String, dynamic>.from(
+      mlOverview?['accuracy_summary'] as Map<String, dynamic>? ?? {},
+    );
+    final wasteSummary = Map<String, dynamic>.from(
+      mlOverview?['waste_summary'] as Map<String, dynamic>? ?? {},
+    );
+    final topRecommendations = List<Map<String, dynamic>>.from(
+      (mlOverview?['top_recommendations'] as List<dynamic>? ?? []).map(
+        (e) => Map<String, dynamic>.from(e as Map),
+      ),
+    );
+    final lowConfidenceItems = List<Map<String, dynamic>>.from(
+      (mlOverview?['low_confidence_items'] as List<dynamic>? ?? []).map(
+        (e) => Map<String, dynamic>.from(e as Map),
+      ),
+    );
 
     return Scaffold(
       appBar: AppBar(title: const Text('System Analytics')),
       body: loading
           ? const Center(child: CircularProgressIndicator())
-          : analytics == null && accuracy == null
+          : analytics == null && accuracy == null && mlOverview == null
           ? const Center(child: Text('No analytics data available.'))
           : RefreshIndicator(
               onRefresh: fetchAnalytics,
               child: ListView(
                 padding: const EdgeInsets.all(14),
                 children: [
+                  sectionCard(
+                    title: 'ML System Overview',
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Wrap(
+                          spacing: 10,
+                          runSpacing: 10,
+                          children: [
+                            chipStat(
+                              'Best Model',
+                              '${training['best_model_name'] ?? 'Not trained'}',
+                              const Color(0xFF2E6FD8),
+                            ),
+                            chipStat(
+                              'Training Rows',
+                              '${training['dataset_rows'] ?? 0}',
+                              const Color(0xFF0F7A8B),
+                            ),
+                            chipStat(
+                              'Best R²',
+                              '${training['best_r2'] ?? 0}',
+                              const Color(0xFF2E9F65),
+                            ),
+                            chipStat(
+                              'Pending Actuals',
+                              '${mlAccuracySummary['pending_predictions'] ?? 0}',
+                              const Color(0xFFB5482A),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        dataRow(
+                          'Forecasted Items',
+                          '${demandSummary['items_forecasted'] ?? 0}',
+                        ),
+                        dataRow(
+                          'Predicted Demand Total',
+                          '${demandSummary['total_predicted_demand'] ?? 0}',
+                        ),
+                        dataRow(
+                          'Suggested Preparation Total',
+                          '${demandSummary['total_suggested_preparation'] ?? 0}',
+                        ),
+                        dataRow(
+                          'Average Confidence',
+                          '${demandSummary['average_confidence'] ?? 0}%',
+                        ),
+                        dataRow(
+                          'Resolved Predictions',
+                          '${mlAccuracySummary['resolved_predictions'] ?? 0}',
+                        ),
+                        dataRow(
+                          'Estimated Waste Reduction',
+                          '${wasteSummary['estimated_reduction'] ?? 0}',
+                        ),
+                        const SizedBox(height: 16),
+                        const Text(
+                          'Top Live Recommendations',
+                          style: TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                        const SizedBox(height: 12),
+                        simpleList<Map<String, dynamic>>(
+                          items: topRecommendations,
+                          emptyText: 'No live forecast recommendations available.',
+                          builder: (item, index) => Card(
+                            margin: const EdgeInsets.only(bottom: 8),
+                            child: ListTile(
+                              title: Text(item['food_item']?.toString() ?? 'Unknown'),
+                              subtitle: Text(
+                                'Predict ${item['predicted_demand'] ?? 0} • Prepare ${item['suggested_preparation'] ?? 0}',
+                              ),
+                              trailing: Text(
+                                item['confidence_label']?.toString() ?? 'Low',
+                                style: const TextStyle(fontWeight: FontWeight.w700),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        const Text(
+                          'Low Confidence Forecasts',
+                          style: TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                        const SizedBox(height: 12),
+                        simpleList<Map<String, dynamic>>(
+                          items: lowConfidenceItems,
+                          emptyText: 'No low-confidence forecast items right now.',
+                          builder: (item, index) => ListTile(
+                            dense: true,
+                            contentPadding: EdgeInsets.zero,
+                            leading: const Icon(Icons.warning_amber_rounded),
+                            title: Text(item['food_item']?.toString() ?? 'Unknown'),
+                            subtitle: Text(
+                              item['recommended_action']?.toString() ??
+                                  'Review recent demand before preparing.',
+                            ),
+                            trailing: Text(
+                              '${item['confidence_score'] ?? 0}%',
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
                   sectionCard(
                     title: 'Student Behavior Analytics',
                     child: Column(

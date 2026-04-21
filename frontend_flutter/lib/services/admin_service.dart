@@ -7,6 +7,26 @@ import 'api_config.dart';
 class AdminService {
   static String get _baseUrl => ApiConfig.baseUrl;
 
+  Future<void> createMenuItem({
+    required String name,
+    required int price,
+    required String category,
+  }) async {
+    final response = await http.post(
+      Uri.parse('$_baseUrl/menu'),
+      headers: {'Content-Type': 'application/json'},
+      body: json.encode({
+        'name': name,
+        'price': price,
+        'category': category,
+      }),
+    );
+
+    if (response.statusCode != 200) {
+      throw Exception('Create menu failed: ${response.body}');
+    }
+  }
+
   Future<List<Map<String, dynamic>>> getMenuPending() async {
     final response = await http.get(Uri.parse('$_baseUrl/admin/menu-pending'));
     if (response.statusCode != 200) {

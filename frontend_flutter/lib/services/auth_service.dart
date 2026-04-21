@@ -86,7 +86,7 @@ class AuthService {
   Future<void> logout() async {
     await _auth.signOut();
     try {
-      await GoogleSignIn.instance.signOut();
+      GoogleSignIn.instance.signOut().catchError((_) {});
     } catch (_) {
       // Ignore if Google session does not exist.
     }

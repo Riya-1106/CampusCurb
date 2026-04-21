@@ -7,6 +7,7 @@ from pathlib import Path
 import pandas as pd
 
 from firebase_connect import db
+from ml_pipeline import compute_prediction_accuracy_summary
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -199,96 +200,6 @@ def student_behavior(top_n: int = 5):
 
 
 def prediction_accuracy_summary(top_n: int = 5):
-    """Return prediction accuracy metrics using prediction_logs."""
+    """Return prediction accuracy metrics using resolved prediction logs."""
 
-    df = _safe_read_firestore("prediction_logs")
-    if df.empty:
-        return {
-            "overall_accuracy_percentage": 95.0,
-            "total_predictions": 1,
-            "recent_logs": [
-                {
-                    "food_item": "Burger",
-                    "predicted_demand": 120,
-                    "actual_sold": 115,
-                    "accuracy_percentage": 95.0,
-                }
-            ],
-            "accuracy_by_food": [
-                {
-                    "food_item": "Burger",
-                    "predicted_average": 120,
-                    "actual_average": 115,
-                    "accuracy_percentage": 95.0,
-                }
-            ],
-            "note": "No prediction logs available; returning sample accuracy.",
-        }
-
-    required_cols = {"food_item", "predicted_demand", "actual_sold"}
-    if not required_cols.issubset(df.columns):
-        return {
-            "overall_accuracy_percentage": 0.0,
-            "total_predictions": 0,
-            "recent_logs": [],
-            "accuracy_by_food": [],
-            "error": "prediction_logs is missing required fields.",
-        }
-
-    df = df.copy()
-    df["predicted_demand"] = pd.to_numeric(df["predicted_demand"], errors="coerce")
-    df["actual_sold"] = pd.to_numeric(df["actual_sold"], errors="coerce")
-    df = df.dropna(subset=["predicted_demand", "actual_sold", "food_item"])
-    if df.empty:
-        return {
-            "overall_accuracy_percentage": 0.0,
-            "total_predictions": 0,
-            "recent_logs": [],
-            "accuracy_by_food": [],
-        }
-
-    denominator = df[["predicted_demand", "actual_sold"]].max(axis=1).clip(lower=1)
-    df["accuracy_percentage"] = (1 - (df["predicted_demand"] - df["actual_sold"]).abs() / denominator) * 100
-    df["accuracy_percentage"] = df["accuracy_percentage"].clip(lower=0).round(2)
-
-    sort_column = "date" if "date" in df.columns else None
-    recent_df = df.sort_values(by=sort_column, ascending=False) if sort_column else df.copy()
-    recent_logs = []
-    for _, row in recent_df.head(top_n).iterrows():
-        recent_logs.append(
-            {
-                "food_item": str(row["food_item"]),
-                "predicted_demand": int(row["predicted_demand"]),
-                "actual_sold": int(row["actual_sold"]),
-                "accuracy_percentage": float(row["accuracy_percentage"]),
-            }
-        )
-
-    grouped = (
-        df.groupby("food_item", dropna=True)
-        .agg(
-            predicted_average=("predicted_demand", "mean"),
-            actual_average=("actual_sold", "mean"),
-            accuracy_percentage=("accuracy_percentage", "mean"),
-        )
-        .sort_values(by="accuracy_percentage", ascending=False)
-        .head(top_n)
-        .reset_index()
-    )
-    accuracy_by_food = []
-    for _, row in grouped.iterrows():
-        accuracy_by_food.append(
-            {
-                "food_item": str(row["food_item"]),
-                "predicted_average": round(float(row["predicted_average"]), 2),
-                "actual_average": round(float(row["actual_average"]), 2),
-                "accuracy_percentage": round(float(row["accuracy_percentage"]), 2),
-            }
-        )
-
-    return {
-        "overall_accuracy_percentage": round(float(df["accuracy_percentage"].mean()), 2),
-        "total_predictions": int(len(df)),
-        "recent_logs": recent_logs,
-        "accuracy_by_food": accuracy_by_food,
-    }
+    return compute_prediction_accuracy_summary(top_n=top_n)

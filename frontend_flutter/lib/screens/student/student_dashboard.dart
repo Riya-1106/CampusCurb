@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../services/auth_service.dart';
 import '../../services/campus_service.dart';
-import '../auth/login_screen.dart';
+import '../landing/landing_screen.dart';
 import '../shared/profile_screen.dart';
 import 'attendance_screen.dart';
 import 'leaderboard_screen.dart';
@@ -501,11 +501,11 @@ class _StudentDashboardState extends State<StudentDashboard>
             }
 
             if (value == 'logout') {
-              final navigator = Navigator.of(context);
+              final navigator = Navigator.of(context, rootNavigator: true);
               await AuthService().logout();
-              if (!mounted) return;
+              if (!context.mounted) return;
               navigator.pushAndRemoveUntil(
-                MaterialPageRoute(builder: (_) => const LoginScreen()),
+                MaterialPageRoute(builder: (_) => const LandingScreen()),
                 (route) => false,
               );
             }

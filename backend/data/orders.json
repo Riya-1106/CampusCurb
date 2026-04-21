@@ -7,5 +7,14 @@
     "quantity": 1,
     "category": "beverage",
     "time": "2026-04-21T01:10:56.424912"
+  },
+  {
+    "id": "2",
+    "uid": "H6nrGLHqfYUiH4e4XRxMsMQq2im1",
+    "item": "Cheese Sandwich",
+    "price": 60,
+    "quantity": 1,
+    "category": "snack",
+    "time": "2026-04-21T23:44:41.171171"
   }
 ]
