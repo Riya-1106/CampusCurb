@@ -9,6 +9,7 @@ class PredictionService {
   static const Duration _rewardTimeout = Duration(milliseconds: 1200);
   static const Duration _analyticsTimeout = Duration(seconds: 6);
   static const Duration _operationsTimeout = Duration(seconds: 8);
+  static const Duration _trainingTimeout = Duration(seconds: 90);
 
   static String get backendBaseUrl => _baseUrl;
 
@@ -61,6 +62,26 @@ class PredictionService {
         .timeout(_analyticsTimeout);
     if (response.statusCode != 200) {
       throw Exception('Failed to load ML overview');
+    }
+    return json.decode(response.body) as Map<String, dynamic>;
+  }
+
+  Future<Map<String, dynamic>> getMlTrainingStatus() async {
+    final response = await http
+        .get(Uri.parse('$_baseUrl/ml/training-status'))
+        .timeout(_analyticsTimeout);
+    if (response.statusCode != 200) {
+      throw Exception(_extractErrorMessage(response, 'Failed to load training status'));
+    }
+    return json.decode(response.body) as Map<String, dynamic>;
+  }
+
+  Future<Map<String, dynamic>> retrainModel() async {
+    final response = await http
+        .post(Uri.parse('$_baseUrl/retrain'))
+        .timeout(_trainingTimeout);
+    if (response.statusCode != 200) {
+      throw Exception(_extractErrorMessage(response, 'Failed to retrain model'));
     }
     return json.decode(response.body) as Map<String, dynamic>;
   }

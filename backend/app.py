@@ -22,7 +22,12 @@ from firebase_connect import db
 
 
 from log_prediction import apply_operation_actuals
-from ml_pipeline import build_demand_dashboard, get_forecast_menu_items, train_models
+from ml_pipeline import (
+    build_demand_dashboard,
+    get_forecast_menu_items,
+    get_training_status,
+    run_training_cycle,
+)
 from predict import (
     demand_dashboard_data,
     generate_forecast,
@@ -748,6 +753,11 @@ def demand_dashboard():
 @app.get("/ml/overview")
 def ml_overview():
     return get_ml_overview()
+
+
+@app.get("/ml/training-status")
+def ml_training_status():
+    return get_training_status()
 
 
 
@@ -2577,11 +2587,18 @@ def send_faculty_payment_reminders(
 
 @app.post("/retrain")
 def retrain():
-    metrics = train_models()
-    return {
-        "message": "Model retrained successfully",
-        "metrics": metrics,
-    }
+    try:
+        metrics = run_training_cycle(trigger="manual_admin")
+        return {
+            "message": "Model retrained successfully",
+            "metrics": metrics,
+            "status": get_training_status(),
+        }
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Model retraining failed: {str(exc)}",
+        ) from exc
 
 
 @app.get("/test-smtp-config")

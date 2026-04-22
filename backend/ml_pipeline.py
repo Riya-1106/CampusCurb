@@ -29,6 +29,8 @@ ATTENDANCE_PATH = DATA_DIR / "attendance.json"
 OPERATIONS_PATH = DATA_DIR / "canteen_operations.json"
 PREDICTION_LOGS_PATH = DATA_DIR / "prediction_logs.json"
 TRAINING_METRICS_PATH = DATA_DIR / "ml_training_metrics.json"
+TRAINING_STATUS_PATH = DATA_DIR / "ml_training_status.json"
+TRAINING_HISTORY_PATH = DATA_DIR / "ml_training_history.json"
 MODEL_BUNDLE_PATH = MODELS_DIR / "model_bundle.pkl"
 BEST_MODEL_PATH = MODELS_DIR / "best_model.pkl"
 FORECAST_OUTPUT_PATH = DATA_DIR / "tomorrow_forecast.csv"
@@ -129,6 +131,61 @@ def _safe_read_json(path: Path, default: Any) -> Any:
 def _safe_write_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2))
+
+
+def _snapshot_training_metrics(metrics: dict[str, Any] | None = None) -> dict[str, Any]:
+    metrics = get_training_metrics() if metrics is None else metrics
+    return {
+        "best_model_name": metrics.get("best_model_name", "Not trained"),
+        "trained_at": metrics.get("trained_at"),
+        "dataset_rows": int(metrics.get("dataset_rows", 0) or 0),
+        "live_rows_added": int(metrics.get("live_rows_added", 0) or 0),
+        "train_rows": int(metrics.get("train_rows", 0) or 0),
+        "test_rows": int(metrics.get("test_rows", 0) or 0),
+        "best_r2": round(float(metrics.get("best_r2", 0.0) or 0.0), 4),
+    }
+
+
+def _append_training_history(entry: dict[str, Any], limit: int = 8) -> None:
+    history = _safe_read_json(TRAINING_HISTORY_PATH, [])
+    if not isinstance(history, list):
+        history = []
+    history.insert(0, entry)
+    _safe_write_json(TRAINING_HISTORY_PATH, history[:limit])
+
+
+def get_training_status() -> dict[str, Any]:
+    metrics_snapshot = _snapshot_training_metrics()
+    trained_at = metrics_snapshot.get("trained_at")
+    default_status = {
+        "status": "success" if trained_at else "not_started",
+        "last_started_at": trained_at,
+        "last_completed_at": trained_at,
+        "last_trigger": "legacy" if trained_at else None,
+        "last_error": None,
+        "last_duration_seconds": None,
+    }
+
+    saved_status = _safe_read_json(TRAINING_STATUS_PATH, {})
+    if not isinstance(saved_status, dict):
+        saved_status = {}
+    history = _safe_read_json(TRAINING_HISTORY_PATH, [])
+    if not isinstance(history, list):
+        history = []
+
+    status = {
+        **default_status,
+        **saved_status,
+        **metrics_snapshot,
+        "recent_runs": history[:5],
+    }
+    status["status_label"] = {
+        "running": "Training in progress",
+        "success": "Healthy",
+        "failed": "Needs attention",
+        "not_started": "Not started",
+    }.get(str(status.get("status") or "").lower(), "Unknown")
+    return status
 
 
 def _normalize_date(value: Any) -> str | None:
@@ -776,6 +833,72 @@ def train_models() -> dict[str, Any]:
     return metrics_payload
 
 
+def run_training_cycle(trigger: str = "manual") -> dict[str, Any]:
+    started_at = datetime.now()
+    current_status = get_training_status()
+    running_status = {
+        **current_status,
+        "status": "running",
+        "status_label": "Training in progress",
+        "last_started_at": started_at.isoformat(),
+        "last_trigger": trigger,
+        "last_error": None,
+    }
+    _safe_write_json(TRAINING_STATUS_PATH, running_status)
+
+    try:
+        metrics = train_models()
+        completed_at = datetime.now()
+        duration_seconds = round((completed_at - started_at).total_seconds(), 2)
+        snapshot = _snapshot_training_metrics(metrics)
+        success_status = {
+            **running_status,
+            **snapshot,
+            "status": "success",
+            "status_label": "Healthy",
+            "last_completed_at": metrics.get("trained_at") or completed_at.isoformat(),
+            "last_duration_seconds": duration_seconds,
+        }
+        _safe_write_json(TRAINING_STATUS_PATH, success_status)
+        _append_training_history(
+            {
+                "status": "success",
+                "trigger": trigger,
+                "started_at": running_status["last_started_at"],
+                "completed_at": success_status["last_completed_at"],
+                "duration_seconds": duration_seconds,
+                **snapshot,
+            }
+        )
+        return metrics
+    except Exception as exc:
+        completed_at = datetime.now()
+        duration_seconds = round((completed_at - started_at).total_seconds(), 2)
+        failure_status = {
+            **current_status,
+            "status": "failed",
+            "status_label": "Needs attention",
+            "last_started_at": running_status["last_started_at"],
+            "last_completed_at": completed_at.isoformat(),
+            "last_trigger": trigger,
+            "last_error": str(exc),
+            "last_duration_seconds": duration_seconds,
+        }
+        _safe_write_json(TRAINING_STATUS_PATH, failure_status)
+        _append_training_history(
+            {
+                "status": "failed",
+                "trigger": trigger,
+                "started_at": running_status["last_started_at"],
+                "completed_at": completed_at.isoformat(),
+                "duration_seconds": duration_seconds,
+                "error": str(exc),
+                **_snapshot_training_metrics(),
+            }
+        )
+        raise
+
+
 def load_model_bundle() -> dict[str, Any]:
     if MODEL_BUNDLE_PATH.exists():
         try:
@@ -805,6 +928,10 @@ def _series_average(series: pd.Series) -> float:
     return float(series.mean())
 
 
+def _clamp(value: float, lower: float, upper: float) -> float:
+    return max(lower, min(upper, value))
+
+
 def build_live_feature_payload(
     input_data: dict[str, Any],
     *,
@@ -826,8 +953,15 @@ def build_live_feature_payload(
     time_slot = str(input_data.get("time_slot", "")).strip() or _hour_to_slot(target_dt.hour)
 
     profile = _item_profile(food_item, dataset_df, orders_df, operations_df)
+    training_metrics = get_training_metrics()
 
     normalized_food = _normalize_food_name(food_item)
+    dataset_item_rows = pd.DataFrame()
+    if not dataset_df.empty:
+        dataset_item_rows = dataset_df[
+            dataset_df["food_item"].astype(str).str.lower() == normalized_food
+        ].copy()
+
     item_orders = pd.DataFrame()
     if not orders_df.empty:
         item_orders = orders_df[
@@ -858,6 +992,11 @@ def build_live_feature_payload(
 
     same_slot_orders = (
         sales_source[sales_source["time_slot"] == time_slot] if not sales_source.empty else pd.DataFrame()
+    )
+    dataset_same_slot_rows = (
+        dataset_item_rows[dataset_item_rows["time_slot"] == time_slot]
+        if not dataset_item_rows.empty
+        else pd.DataFrame()
     )
     prev_day_sales = int(
         sales_source.loc[sales_source["date"] == prev_day_key, sales_quantity_column].sum()
@@ -909,22 +1048,62 @@ def build_live_feature_payload(
         if float(value) == 0:
             missing_components += 1
 
-    history_points = int(sales_source[sales_quantity_column].count()) if not sales_source.empty else 0
-    same_slot_points = int(same_slot_orders[sales_quantity_column].count()) if not same_slot_orders.empty else 0
-    confidence_score = max(
-        35.0,
-        min(
-            95.0,
-            46.0
-            + min(history_points, 18) * 2.0
-            + min(same_slot_points, 8) * 2.5
-            - min(demand_variance, 25.0) * 0.6
-            - missing_components * 4.0,
+    live_history_points = int(sales_source[sales_quantity_column].count()) if not sales_source.empty else 0
+    live_same_slot_points = int(same_slot_orders[sales_quantity_column].count()) if not same_slot_orders.empty else 0
+    dataset_history_points = int(len(dataset_item_rows)) if not dataset_item_rows.empty else 0
+    dataset_same_slot_points = int(len(dataset_same_slot_rows)) if not dataset_same_slot_rows.empty else 0
+
+    history_points = dataset_history_points + live_history_points
+    same_slot_points = dataset_same_slot_points + live_same_slot_points
+    observed_recent_days = int(len(recent_daily_sales))
+
+    history_coverage = _clamp(
+        (dataset_history_points * 0.4 + live_history_points * 1.4) / 24.0,
+        0.0,
+        1.0,
+    )
+    slot_coverage = _clamp(
+        (dataset_same_slot_points * 0.35 + live_same_slot_points * 1.6) / 10.0,
+        0.0,
+        1.0,
+    )
+    recency_coverage = _clamp(observed_recent_days / 7.0, 0.0, 1.0)
+    if observed_recent_days == 0 and dataset_history_points > 0:
+        recency_coverage = _clamp(dataset_history_points / 60.0, 0.0, 1.0) * 0.45
+
+    demand_anchor_for_variation = max(avg_last_7_days_sales, float(profile["historical_average_sales"]), 1.0)
+    coefficient_of_variation = demand_variance / demand_anchor_for_variation
+    stability_score = _clamp(1.0 - min(coefficient_of_variation, 1.5) / 1.5, 0.0, 1.0)
+    completeness_score = _clamp(1.0 - (missing_components / 4.0), 0.0, 1.0)
+    model_quality_score = _clamp(float(training_metrics.get("best_r2", 0.0) or 0.0), 0.0, 1.0)
+
+    confidence_score = _clamp(
+        (
+            history_coverage * 22.0
+            + slot_coverage * 18.0
+            + recency_coverage * 16.0
+            + stability_score * 14.0
+            + completeness_score * 9.0
+            + model_quality_score * 10.0
         ),
+        18.0,
+        96.0,
     )
     confidence_label = (
-        "High" if confidence_score >= 80 else "Medium" if confidence_score >= 60 else "Low"
+        "High" if confidence_score >= 76 else "Medium" if confidence_score >= 50 else "Low"
     )
+
+    confidence_reason = "Live data is still limited, so this forecast leans heavily on historical patterns."
+    if history_points <= 2:
+        confidence_reason = "Very little item history is available yet, so this forecast is mostly exploratory."
+    elif live_history_points == 0 and dataset_history_points > 0:
+        confidence_reason = "Historical dataset coverage is strong, but recent live canteen logs for this item are limited."
+    elif same_slot_points <= 2:
+        confidence_reason = "This item has history, but not much for this exact time slot yet."
+    elif coefficient_of_variation >= 0.45:
+        confidence_reason = "Recent demand is volatile, so the forecast includes more uncertainty than usual."
+    elif confidence_label == "High":
+        confidence_reason = "Strong historical coverage, slot-level support, and stable demand patterns back this forecast."
 
     trend_direction = "stable"
     trend_reason = "Demand is close to the recent average."
@@ -1004,6 +1183,7 @@ def build_live_feature_payload(
         "historical_waste_average": round(float(profile["quantity_wasted"]), 2),
         "confidence_score": round(float(confidence_score), 2),
         "confidence_label": confidence_label,
+        "confidence_reason": confidence_reason,
         "trend_direction": trend_direction,
         "trend_reason": trend_reason,
         "recommended_action": action,
@@ -1020,6 +1200,12 @@ def build_live_feature_payload(
             "demand_variance": round(float(demand_variance), 2),
             "history_points": history_points,
             "same_slot_points": same_slot_points,
+            "dataset_history_points": dataset_history_points,
+            "dataset_same_slot_points": dataset_same_slot_points,
+            "live_history_points": live_history_points,
+            "live_same_slot_points": live_same_slot_points,
+            "coefficient_of_variation": round(float(coefficient_of_variation), 3),
+            "completeness_score": round(float(completeness_score), 3),
         },
     }
 
@@ -1058,12 +1244,40 @@ def predict_live_demand(
         predicted_raw = pipeline.predict(frame)[0]
         predicted_demand = int(round(max(float(predicted_raw), 0)))
 
-    suggested_preparation = max(
-        int(round(predicted_demand * 1.1)),
-        int(round(meta["recent_average_sales"])),
+    confidence_weight = _clamp(float(meta["confidence_score"]) / 100.0, 0.25, 0.88)
+    expected_demand_anchor = (
+        predicted_demand * confidence_weight
+        + float(meta["recent_average_sales"]) * (1.0 - confidence_weight)
     )
-    historical_actual = int(round(meta["recent_average_sales"]))
+    if float(features["prev_day_sales"]) > 0:
+        expected_demand_anchor = (
+            expected_demand_anchor * 0.8
+            + float(features["prev_day_sales"]) * 0.2
+        )
+
+    coefficient_of_variation = float(
+        meta["feature_snapshot"].get("coefficient_of_variation", 0.0) or 0.0
+    )
+    base_buffer = 0.06
+    if meta["confidence_label"] == "Low":
+        base_buffer = 0.18
+    elif meta["confidence_label"] == "Medium":
+        base_buffer = 0.11
+    volatility_buffer = _clamp(coefficient_of_variation, 0.0, 0.35) * 0.25
+    trend_adjustment = 0.04 if meta["trend_direction"] == "up" else -0.02 if meta["trend_direction"] == "down" else 0.0
+    buffer_ratio = _clamp(base_buffer + volatility_buffer + trend_adjustment, 0.05, 0.28)
+
+    preparation_floor_ratio = 0.95 if meta["trend_direction"] != "down" else 0.85
+    suggested_preparation = max(
+        int(round(expected_demand_anchor * (1.0 + buffer_ratio))),
+        int(round(float(meta["recent_average_sales"]) * preparation_floor_ratio)),
+    )
+    historical_actual = int(round(expected_demand_anchor))
     expected_waste = max(suggested_preparation - historical_actual, 0)
+    expected_sell_through = round(
+        (historical_actual / suggested_preparation * 100.0) if suggested_preparation else 0.0,
+        2,
+    )
 
     result = {
         "food_item": meta["food_item"],
@@ -1071,12 +1285,16 @@ def predict_live_demand(
         "predicted_demand": predicted_demand,
         "suggested_preparation": suggested_preparation,
         "expected_waste": expected_waste,
+        "expected_demand_anchor": round(float(expected_demand_anchor), 2),
+        "recommended_buffer_percentage": round(float(buffer_ratio * 100.0), 2),
+        "expected_sell_through_percentage": expected_sell_through,
         "historical_average_sales": meta["historical_average_sales"],
         "recent_average_sales": meta["recent_average_sales"],
         "historical_preparation_average": meta["historical_preparation_average"],
         "historical_waste_average": meta["historical_waste_average"],
         "confidence_score": meta["confidence_score"],
         "confidence_label": meta["confidence_label"],
+        "confidence_reason": meta["confidence_reason"],
         "trend_direction": meta["trend_direction"],
         "trend_reason": meta["trend_reason"],
         "recommended_action": meta["recommended_action"],
@@ -1202,8 +1420,8 @@ def build_demand_dashboard(
                 if str(item.get("name", "")).strip()
             ],
         },
-        "formula": "Predicted demand + 10% safety margin, adjusted by recent demand signals.",
-        "example": "If the model predicts 120 meals, suggested preparation becomes 132.",
+        "formula": "Suggested preparation uses a confidence-aware demand anchor plus a dynamic safety buffer based on volatility and trend.",
+        "example": "If demand confidence is low, the system blends the model forecast with recent sales before adding a slot-specific safety margin.",
         "model": {
             "name": load_model_bundle().get("best_model_name", "Heuristic fallback"),
             "trained_at": get_training_metrics().get("trained_at"),
@@ -1418,17 +1636,22 @@ def compute_waste_summary() -> dict[str, Any]:
         )
 
         baseline_prepared = sum(
-            int(log.get("historical_preparation_average") or log.get("suggested_preparation") or 0)
+            max(
+                int(log.get("historical_preparation_average") or log.get("suggested_preparation") or 0),
+                int(log.get("actual_sold") or 0),
+            )
             for log in resolved_logs
         )
         baseline_waste = max(baseline_prepared - total_sold, 0)
         estimated_reduction = max(baseline_waste - total_wasted, 0)
         waste_percentage = (total_wasted / total_prepared * 100) if total_prepared else 0.0
+        sell_through_percentage = (total_sold / total_prepared * 100) if total_prepared else 0.0
         return {
             "total_food_prepared": int(total_prepared),
             "total_food_sold": int(total_sold),
             "total_food_wasted": int(total_wasted),
             "waste_percentage": round(float(waste_percentage), 2),
+            "sell_through_percentage": round(float(sell_through_percentage), 2),
             "estimated_waste_after_ml": int(total_wasted),
             "estimated_reduction": int(estimated_reduction),
             "baseline_waste": int(baseline_waste),
@@ -1450,16 +1673,48 @@ def compute_waste_summary() -> dict[str, Any]:
             "note": "No resolved prediction logs or dataset rows are available yet.",
         }
 
+    dashboard = build_demand_dashboard(log_request=False)
+    dashboard_rows = dashboard.get("dashboard", [])
+    if dashboard_rows:
+        total_prepared = sum(int(row.get("suggested_preparation") or 0) for row in dashboard_rows)
+        total_sold = sum(int(round(float(row.get("expected_demand_anchor") or 0))) for row in dashboard_rows)
+        total_wasted = sum(int(row.get("expected_waste") or 0) for row in dashboard_rows)
+        baseline_waste = sum(
+            max(
+                int(row.get("historical_preparation_average") or row.get("suggested_preparation") or 0)
+                - int(round(float(row.get("expected_demand_anchor") or 0))),
+                0,
+            )
+            for row in dashboard_rows
+        )
+        estimated_reduction = max(baseline_waste - total_wasted, 0)
+        waste_percentage = (total_wasted / total_prepared * 100) if total_prepared else 0.0
+        sell_through_percentage = (total_sold / total_prepared * 100) if total_prepared else 0.0
+        return {
+            "total_food_prepared": int(total_prepared),
+            "total_food_sold": int(total_sold),
+            "total_food_wasted": int(total_wasted),
+            "waste_percentage": round(float(waste_percentage), 2),
+            "sell_through_percentage": round(float(sell_through_percentage), 2),
+            "estimated_waste_after_ml": int(total_wasted),
+            "estimated_reduction": int(estimated_reduction),
+            "baseline_waste": int(baseline_waste),
+            "prediction_count_used": 0,
+            "note": "Waste summary is currently forecast-based because resolved canteen actuals are still limited.",
+        }
+
     total_prepared = int(pd.to_numeric(dataset_df["quantity_prepared"], errors="coerce").fillna(0).sum())
     total_sold = int(pd.to_numeric(dataset_df[TARGET_COLUMN], errors="coerce").fillna(0).sum())
     total_wasted = int(pd.to_numeric(dataset_df["quantity_wasted"], errors="coerce").fillna(0).sum())
     waste_percentage = (total_wasted / total_prepared * 100) if total_prepared else 0.0
+    sell_through_percentage = (total_sold / total_prepared * 100) if total_prepared else 0.0
     estimated_reduction = int(round(total_wasted * 0.15))
     return {
         "total_food_prepared": total_prepared,
         "total_food_sold": total_sold,
         "total_food_wasted": total_wasted,
         "waste_percentage": round(float(waste_percentage), 2),
+        "sell_through_percentage": round(float(sell_through_percentage), 2),
         "estimated_waste_after_ml": max(total_wasted - estimated_reduction, 0),
         "estimated_reduction": estimated_reduction,
         "baseline_waste": total_wasted,
@@ -1470,6 +1725,7 @@ def compute_waste_summary() -> dict[str, Any]:
 
 def build_ml_system_overview() -> dict[str, Any]:
     training_metrics = get_training_metrics()
+    training_status = get_training_status()
     demand = build_demand_dashboard(log_request=False)
     accuracy = compute_prediction_accuracy_summary()
     waste = compute_waste_summary()
@@ -1567,6 +1823,7 @@ def build_ml_system_overview() -> dict[str, Any]:
 
     return {
         "training": training_metrics,
+        "training_status": training_status,
         "demand_summary": demand_summary,
         "top_recommendations": top_recommendations,
         "low_confidence_items": low_confidence_items,

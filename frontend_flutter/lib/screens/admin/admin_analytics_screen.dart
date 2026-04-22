@@ -71,7 +71,10 @@ class _AdminAnalyticsScreenState extends State<AdminAnalyticsScreen> {
   Map<String, dynamic>? studentData;
   Map<String, dynamic>? predictionData;
   Map<String, dynamic>? mlOverviewData;
+  Map<String, dynamic>? trainingStatusData;
   bool loading = true;
+  bool retraining = false;
+  bool partialDataUnavailable = false;
 
   @override
   void initState() {
@@ -83,24 +86,47 @@ class _AdminAnalyticsScreenState extends State<AdminAnalyticsScreen> {
     setState(() {
       loading = true;
     });
+
+    Future<Map<String, dynamic>?> safeLoad(
+      Future<Map<String, dynamic>> request,
+    ) async {
+      try {
+        return await request;
+      } catch (_) {
+        return null;
+      }
+    }
+
+    final results = await Future.wait<Map<String, dynamic>?>(
+      [
+        safeLoad(_service.getStudentAnalytics()),
+        safeLoad(_service.getPredictionAccuracy()),
+        safeLoad(_service.getMlOverview()),
+      ],
+    );
+
+    if (!mounted) return;
+    setState(() {
+      studentData = results[0];
+      predictionData = results[1];
+      mlOverviewData = results[2];
+      trainingStatusData = Map<String, dynamic>.from(
+        results[2]?['training_status'] as Map<String, dynamic>? ?? {},
+      );
+      partialDataUnavailable = results.any((result) => result == null);
+      loading = false;
+    });
+  }
+
+  Future<void> refreshTrainingStatus() async {
     try {
-      final results = await Future.wait([
-        _service.getStudentAnalytics(),
-        _service.getPredictionAccuracy(),
-        _service.getMlOverview(),
-      ]);
+      final status = await _service.getMlTrainingStatus();
       if (!mounted) return;
       setState(() {
-        studentData = results[0];
-        predictionData = results[1];
-        mlOverviewData = results[2];
-        loading = false;
+        trainingStatusData = status;
       });
     } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        loading = false;
-      });
+      // Keep the last known training status on screen.
     }
   }
 
@@ -166,9 +192,13 @@ class _AdminAnalyticsScreenState extends State<AdminAnalyticsScreen> {
 
   Color _statusColor(String label) {
     final normalized = label.trim().toLowerCase();
+    if (normalized.contains('running') || normalized.contains('progress')) {
+      return const Color(0xFF2563EB);
+    }
     if (normalized.contains('strong') ||
         normalized.contains('reliable') ||
-        normalized.contains('healthy')) {
+        normalized.contains('healthy') ||
+        normalized.contains('success')) {
       return const Color(0xFF15803D);
     }
     if (normalized.contains('promising') ||
@@ -176,10 +206,91 @@ class _AdminAnalyticsScreenState extends State<AdminAnalyticsScreen> {
       return const Color(0xFF2563EB);
     }
     if (normalized.contains('early') ||
-        normalized.contains('needs')) {
+        normalized.contains('needs') ||
+        normalized.contains('failed')) {
       return const Color(0xFFB45309);
     }
     return const Color(0xFF64748B);
+  }
+
+  String _formatTimestamp(dynamic value) {
+    final raw = value?.toString() ?? '';
+    if (raw.isEmpty) return 'Not available yet';
+    final parsed = DateTime.tryParse(raw);
+    if (parsed == null) return raw;
+    final local = parsed.toLocal();
+    final monthNames = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    final month = monthNames[local.month - 1];
+    final hour = local.hour % 12 == 0 ? 12 : local.hour % 12;
+    final minute = local.minute.toString().padLeft(2, '0');
+    final period = local.hour >= 12 ? 'PM' : 'AM';
+    return '${local.day} $month ${local.year}, $hour:$minute $period';
+  }
+
+  String _formatDuration(dynamic value) {
+    final seconds = _toDouble(value);
+    if (seconds <= 0) return 'Not recorded';
+    if (seconds < 60) return '${seconds.toStringAsFixed(seconds < 10 ? 1 : 0)} sec';
+    final minutes = (seconds / 60).floor();
+    final remaining = (seconds % 60).round();
+    return '$minutes min ${remaining}s';
+  }
+
+  String _humanizeError(Object error) {
+    final text = error.toString().replaceFirst('Exception: ', '').trim();
+    if (text.isEmpty) {
+      return 'Training could not be completed right now.';
+    }
+    return text;
+  }
+
+  Future<void> triggerRetraining() async {
+    if (retraining) return;
+    setState(() {
+      retraining = true;
+    });
+
+    try {
+      final response = await _service.retrainModel();
+      if (!mounted) return;
+      await fetchAnalytics();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            response['message']?.toString() ?? 'Model retrained successfully.',
+          ),
+        ),
+      );
+    } catch (error) {
+      await refreshTrainingStatus();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(_humanizeError(error)),
+          backgroundColor: const Color(0xFFB91C1C),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          retraining = false;
+        });
+      }
+    }
   }
 
   Widget statusPill(String label) {
@@ -393,6 +504,11 @@ class _AdminAnalyticsScreenState extends State<AdminAnalyticsScreen> {
     final training = Map<String, dynamic>.from(
       mlOverview?['training'] as Map<String, dynamic>? ?? {},
     );
+    final trainingStatus = Map<String, dynamic>.from(
+      trainingStatusData ??
+          mlOverview?['training_status'] as Map<String, dynamic>? ??
+          {},
+    );
     final demandSummary = Map<String, dynamic>.from(
       mlOverview?['demand_summary'] as Map<String, dynamic>? ?? {},
     );
@@ -420,6 +536,11 @@ class _AdminAnalyticsScreenState extends State<AdminAnalyticsScreen> {
         (e) => e.toString(),
       ),
     );
+    final recentTrainingRuns = List<Map<String, dynamic>>.from(
+      (trainingStatus['recent_runs'] as List<dynamic>? ?? []).map(
+        (e) => Map<String, dynamic>.from(e as Map),
+      ),
+    );
 
     return Scaffold(
       appBar: AppBar(title: const Text('System Analytics')),
@@ -432,6 +553,37 @@ class _AdminAnalyticsScreenState extends State<AdminAnalyticsScreen> {
               child: ListView(
                 padding: const EdgeInsets.all(14),
                 children: [
+                  if (partialDataUnavailable) ...[
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 12),
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFFFBEB),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: const Color(0xFFFDE68A)),
+                      ),
+                      child: const Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(
+                            Icons.info_outline_rounded,
+                            color: Color(0xFFB45309),
+                          ),
+                          SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              'Some analytics sections could not be loaded right now, but the ML overview and training controls are still available.',
+                              style: TextStyle(
+                                color: Color(0xFF92400E),
+                                fontWeight: FontWeight.w600,
+                                height: 1.4,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                   sectionCard(
                     title: 'ML Impact Snapshot',
                     child: Column(
@@ -566,6 +718,173 @@ class _AdminAnalyticsScreenState extends State<AdminAnalyticsScreen> {
                                   ),
                                 ),
                               ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  sectionCard(
+                    title: 'ML Training Control',
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          retraining
+                              ? 'Retraining is running now. This uses the same shared pipeline that the weekly scheduler will trigger.'
+                              : 'This shows the last shared training run. Manual retraining here updates the same model bundle used by forecasting and weekly refreshes.',
+                          style: const TextStyle(
+                            color: Color(0xFF334155),
+                            fontWeight: FontWeight.w600,
+                            height: 1.5,
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        Wrap(
+                          spacing: 10,
+                          runSpacing: 10,
+                          children: [
+                            statusPill(
+                              trainingStatus['status_label']?.toString() ??
+                                  'Not started',
+                            ),
+                            chipStat(
+                              'Best Model',
+                              trainingStatus['best_model_name']?.toString() ??
+                                  training['best_model_name']?.toString() ??
+                                  'Not trained',
+                              const Color(0xFF2E6FD8),
+                            ),
+                            chipStat(
+                              'Dataset Rows',
+                              '${trainingStatus['dataset_rows'] ?? training['dataset_rows'] ?? 0}',
+                              const Color(0xFF0F7A8B),
+                            ),
+                            chipStat(
+                              'Live Rows Added',
+                              '${trainingStatus['live_rows_added'] ?? training['live_rows_added'] ?? 0}',
+                              const Color(0xFF7C3AED),
+                            ),
+                            chipStat(
+                              'Best R²',
+                              '${trainingStatus['best_r2'] ?? training['best_r2'] ?? 0}',
+                              const Color(0xFF15803D),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        dataRow(
+                          'Last Completed',
+                          _formatTimestamp(trainingStatus['last_completed_at']),
+                        ),
+                        dataRow(
+                          'Last Started',
+                          _formatTimestamp(trainingStatus['last_started_at']),
+                        ),
+                        dataRow(
+                          'Trigger',
+                          trainingStatus['last_trigger']?.toString() ??
+                              'Not available yet',
+                        ),
+                        dataRow(
+                          'Duration',
+                          _formatDuration(
+                            trainingStatus['last_duration_seconds'],
+                          ),
+                        ),
+                        dataRow(
+                          'Training Split',
+                          '${trainingStatus['train_rows'] ?? training['train_rows'] ?? 0} train / ${trainingStatus['test_rows'] ?? training['test_rows'] ?? 0} test',
+                        ),
+                        if ((trainingStatus['last_error']?.toString() ?? '')
+                            .isNotEmpty) ...[
+                          const SizedBox(height: 14),
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(14),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFEF2F2),
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(
+                                color: const Color(0xFFFECACA),
+                              ),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Last Failure',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w800,
+                                    color: Color(0xFFB91C1C),
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  trainingStatus['last_error']?.toString() ?? '',
+                                  style: const TextStyle(
+                                    color: Color(0xFF7F1D1D),
+                                    height: 1.4,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 16),
+                        Wrap(
+                          spacing: 10,
+                          runSpacing: 10,
+                          children: [
+                            ElevatedButton.icon(
+                              onPressed: retraining ? null : triggerRetraining,
+                              icon: retraining
+                                  ? const SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : const Icon(Icons.auto_graph_rounded),
+                              label: Text(
+                                retraining ? 'Retraining…' : 'Retrain Now',
+                              ),
+                            ),
+                            OutlinedButton.icon(
+                              onPressed: retraining ? null : refreshTrainingStatus,
+                              icon: const Icon(Icons.refresh_rounded),
+                              label: const Text('Refresh Status'),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        const Text(
+                          'Recent Training Runs',
+                          style: TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                        const SizedBox(height: 12),
+                        simpleList<Map<String, dynamic>>(
+                          items: recentTrainingRuns,
+                          emptyText: 'No training history is available yet.',
+                          builder: (item, index) => Card(
+                            margin: const EdgeInsets.only(bottom: 8),
+                            child: ListTile(
+                              title: Text(
+                                '${item['best_model_name'] ?? 'Model run'} • ${item['status'] ?? 'unknown'}',
+                              ),
+                              subtitle: Text(
+                                'Trigger: ${item['trigger'] ?? 'manual'} • Completed: ${_formatTimestamp(item['completed_at'])}',
+                              ),
+                              trailing: Text(
+                                item['status']?.toString() == 'failed'
+                                    ? 'Issue'
+                                    : '${item['best_r2'] ?? 0} R²',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
                             ),
                           ),
                         ),

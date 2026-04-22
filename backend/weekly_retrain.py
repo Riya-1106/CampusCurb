@@ -4,7 +4,7 @@
 import logging
 import os
 
-from ml_pipeline import train_models
+from ml_pipeline import run_training_cycle
 
 # Ensure logs directory exists
 os.makedirs("logs", exist_ok=True)
@@ -24,7 +24,7 @@ def run_retraining():
 
     try:
         print("Retraining model...")
-        metrics = train_models()
+        metrics = run_training_cycle(trigger="weekly_scheduler")
         logging.info("Model retrained successfully")
         logging.info("Best model: %s", metrics.get("best_model_name", "Unknown"))
         print("Retraining completed successfully!")

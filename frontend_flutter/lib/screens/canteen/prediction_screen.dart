@@ -237,6 +237,14 @@ class _PredictionScreenState extends State<PredictionScreen> {
             color: confidenceColor,
           ),
           _infoRow(
+            'Recommended buffer',
+            '${_toDouble(item['recommended_buffer_percentage']).toStringAsFixed(1)}%',
+          ),
+          _infoRow(
+            'Expected sell-through',
+            '${_toDouble(item['expected_sell_through_percentage']).toStringAsFixed(1)}%',
+          ),
+          _infoRow(
             'Historical prep average',
             '${_toInt(item['historical_preparation_average'])}',
           ),
@@ -267,6 +275,15 @@ class _PredictionScreenState extends State<PredictionScreen> {
                   item['trend_reason']?.toString() ?? 'Demand is stable.',
                   style: const TextStyle(
                     color: Color(0xFF475569),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  item['confidence_reason']?.toString() ??
+                      'Confidence is based on item history, slot support, and demand stability.',
+                  style: const TextStyle(
+                    color: Color(0xFF64748B),
                     fontWeight: FontWeight.w600,
                   ),
                 ),

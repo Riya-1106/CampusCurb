@@ -94,18 +94,52 @@ class _AdminDashboardState extends State<AdminDashboard> with TickerProviderStat
 
   Color _statusColor(String value) {
     final normalized = value.trim().toLowerCase();
+    if (normalized.contains('running') || normalized.contains('progress')) {
+      return const Color(0xFF3B82F6);
+    }
     if (normalized.contains('strong') ||
         normalized.contains('promising') ||
-        normalized.contains('reliable')) {
+        normalized.contains('reliable') ||
+        normalized.contains('healthy') ||
+        normalized.contains('success')) {
       return const Color(0xFF10B981);
     }
     if (normalized.contains('improving')) {
       return const Color(0xFF3B82F6);
     }
-    if (normalized.contains('needs') || normalized.contains('early')) {
+    if (normalized.contains('needs') ||
+        normalized.contains('early') ||
+        normalized.contains('failed')) {
       return const Color(0xFFF59E0B);
     }
     return const Color(0xFF6B7280);
+  }
+
+  String _formatTimestamp(dynamic value) {
+    final raw = value?.toString() ?? '';
+    if (raw.isEmpty) return 'Not available yet';
+    final parsed = DateTime.tryParse(raw);
+    if (parsed == null) return raw;
+    final local = parsed.toLocal();
+    final monthNames = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    final month = monthNames[local.month - 1];
+    final hour = local.hour % 12 == 0 ? 12 : local.hour % 12;
+    final minute = local.minute.toString().padLeft(2, '0');
+    final period = local.hour >= 12 ? 'PM' : 'AM';
+    return '${local.day} $month ${local.year}, $hour:$minute $period';
   }
 
   @override
@@ -142,6 +176,8 @@ class _AdminDashboardState extends State<AdminDashboard> with TickerProviderStat
                               _buildQuickActionsSection(context),
                               const SizedBox(height: 32),
                               _buildMlImpactSection(),
+                              const SizedBox(height: 32),
+                              _buildTrainingStatusSection(context),
                               const SizedBox(height: 32),
                               _buildStatsOverview(),
                               const SizedBox(height: 32),
@@ -451,6 +487,137 @@ class _AdminDashboardState extends State<AdminDashboard> with TickerProviderStat
     );
   }
 
+  Widget _buildTrainingStatusSection(BuildContext context) {
+    final trainingStatus = Map<String, dynamic>.from(
+      _mlOverviewData?['training_status'] as Map<String, dynamic>? ?? {},
+    );
+
+    if (_analyticsLoading) {
+      return _buildSectionShell(
+        icon: Icons.auto_graph_rounded,
+        title: 'Training Status',
+        child: const SizedBox(
+          height: 120,
+          child: Center(child: CircularProgressIndicator()),
+        ),
+      );
+    }
+
+    final statusLabel =
+        trainingStatus['status_label']?.toString() ?? 'Not started';
+    final statusColor = _statusColor(statusLabel);
+
+    return _buildSectionShell(
+      icon: Icons.auto_graph_rounded,
+      title: 'Training Status',
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: const Color(0xFFE5E7EB)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.04),
+              blurRadius: 16,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: [
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: statusColor.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(color: statusColor.withOpacity(0.2)),
+                  ),
+                  child: Text(
+                    statusLabel,
+                    style: TextStyle(
+                      color: statusColor,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                Text(
+                  'Last completed: ${_formatTimestamp(trainingStatus['last_completed_at'])}',
+                  style: const TextStyle(
+                    color: Color(0xFF4B5563),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 18),
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: [
+                _buildDashboardInfoChip(
+                  'Best Model',
+                  trainingStatus['best_model_name']?.toString() ?? 'Not trained',
+                  const Color(0xFF3B82F6),
+                ),
+                _buildDashboardInfoChip(
+                  'Dataset Rows',
+                  '${_toInt(trainingStatus['dataset_rows'])}',
+                  const Color(0xFF0F766E),
+                ),
+                _buildDashboardInfoChip(
+                  'Live Rows Added',
+                  '${_toInt(trainingStatus['live_rows_added'])}',
+                  const Color(0xFF7C3AED),
+                ),
+                _buildDashboardInfoChip(
+                  'Best R²',
+                  _toDouble(trainingStatus['best_r2']).toStringAsFixed(2),
+                  const Color(0xFF15803D),
+                ),
+              ],
+            ),
+            const SizedBox(height: 18),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Open the reports screen to run retraining, view recent runs, and inspect any failure details.',
+                    style: const TextStyle(
+                      color: Color(0xFF6B7280),
+                      height: 1.5,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                ElevatedButton.icon(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const AdminAnalyticsScreen(),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.open_in_new_rounded),
+                  label: const Text('Open Training Controls'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   // Stats Overview Section
   Widget _buildStatsOverview() {
     final impactSummary = Map<String, dynamic>.from(
@@ -712,6 +879,39 @@ class _AdminDashboardState extends State<AdminDashboard> with TickerProviderStat
             label,
             style: const TextStyle(
               color: Color(0xFFE0F2FE),
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDashboardInfoChip(String label, String value, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: color.withOpacity(0.14)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            value,
+            style: TextStyle(
+              color: color,
+              fontWeight: FontWeight.w800,
+              fontSize: 16,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            style: const TextStyle(
+              color: Color(0xFF475569),
               fontWeight: FontWeight.w600,
             ),
           ),

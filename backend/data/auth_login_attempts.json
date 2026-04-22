@@ -298,5 +298,25 @@
     "selected_role": "admin",
     "ip": "127.0.0.1",
     "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+  },
+  {
+    "timestamp": "2026-04-22T16:36:10.760751+00:00",
+    "email": "dhruvdave0603@sfit.ac.in",
+    "method": "password",
+    "success": true,
+    "reason": "Login success",
+    "selected_role": "canteen",
+    "ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+  },
+  {
+    "timestamp": "2026-04-22T17:45:49.932850+00:00",
+    "email": "campuscurb30@gmail.com",
+    "method": "password",
+    "success": true,
+    "reason": "Login success",
+    "selected_role": "admin",
+    "ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
   }
 ]
