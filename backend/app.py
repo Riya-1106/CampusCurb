@@ -1736,6 +1736,29 @@ def get_college_food_requests(authorization: Optional[str] = Header(default=None
 
 @app.get("/menu")
 def get_menu():
+    local_menu = load_data(MENU_MASTER, DEFAULT_MENU)
+    if local_menu:
+        normalized_menu = []
+        for entry in local_menu:
+            if not isinstance(entry, dict):
+                continue
+            name = str(entry.get("name", "")).strip()
+            if not name:
+                continue
+            item_id = str(entry.get("id") or entry.get("item_id") or _normalized_food_key(name)).strip()
+            normalized_menu.append(
+                {
+                    "id": item_id,
+                    "item_id": item_id,
+                    "name": name,
+                    "price": _safe_int(entry.get("price"), 0),
+                    "category": str(entry.get("category") or "general").strip().lower() or "general",
+                    "approved": bool(entry.get("approved", True)),
+                }
+            )
+        if normalized_menu:
+            return normalized_menu
+
     try:
         docs = db.collection("menu").where("approved", "==", True).stream(timeout=3)
         menu_items = []
@@ -1755,9 +1778,7 @@ def get_menu():
     except Exception:
         pass
 
-
-    # Fallback for demo setup where menu has not been approved yet.
-    return load_data(MENU_MASTER, DEFAULT_MENU)
+    return DEFAULT_MENU
 
 
 

@@ -2,21 +2,73 @@
   {
     "id": "1",
     "name": "Veg Wrap",
-    "price": 80
+    "price": 80,
+    "category": "fastfood"
   },
   {
     "id": "2",
     "name": "Masala Dosa",
-    "price": 50
+    "price": 50,
+    "category": "breakfast"
   },
   {
     "id": "3",
     "name": "Cheese Pizza",
-    "price": 120
+    "price": 120,
+    "category": "meal"
   },
   {
     "id": "4",
     "name": "Idli",
-    "price": 30
+    "price": 30,
+    "category": "breakfast"
+  },
+  {
+    "id": "5",
+    "name": "Coffee",
+    "price": 66,
+    "category": "beverage"
+  },
+  {
+    "id": "6",
+    "name": "Tea",
+    "price": 63,
+    "category": "beverage"
+  },
+  {
+    "id": "7",
+    "name": "Milk",
+    "price": 63,
+    "category": "beverage"
+  },
+  {
+    "id": "8",
+    "name": "Sandwich",
+    "price": 66,
+    "category": "fastfood"
+  },
+  {
+    "id": "9",
+    "name": "Noodles",
+    "price": 64,
+    "category": "fastfood"
+  },
+  {
+    "id": "10",
+    "name": "Burger",
+    "price": 68,
+    "category": "fastfood"
+  },
+  {
+    "id": "11",
+    "name": "Pasta",
+    "price": 67,
+    "category": "fastfood"
+  },
+  {
+    "id": "12",
+    "name": "Coke diet",
+    "price": 40,
+    "category": "beverage"
   }
 ]

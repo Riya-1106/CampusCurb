@@ -164,6 +164,43 @@ class _AdminAnalyticsScreenState extends State<AdminAnalyticsScreen> {
     );
   }
 
+  Color _statusColor(String label) {
+    final normalized = label.trim().toLowerCase();
+    if (normalized.contains('strong') ||
+        normalized.contains('reliable') ||
+        normalized.contains('healthy')) {
+      return const Color(0xFF15803D);
+    }
+    if (normalized.contains('promising') ||
+        normalized.contains('improving')) {
+      return const Color(0xFF2563EB);
+    }
+    if (normalized.contains('early') ||
+        normalized.contains('needs')) {
+      return const Color(0xFFB45309);
+    }
+    return const Color(0xFF64748B);
+  }
+
+  Widget statusPill(String label) {
+    final color = _statusColor(label);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.20)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
+
   Widget simpleList<T>({
     required List<T> items,
     required Widget Function(T item, int index) builder,
@@ -362,8 +399,11 @@ class _AdminAnalyticsScreenState extends State<AdminAnalyticsScreen> {
     final mlAccuracySummary = Map<String, dynamic>.from(
       mlOverview?['accuracy_summary'] as Map<String, dynamic>? ?? {},
     );
-    final wasteSummary = Map<String, dynamic>.from(
-      mlOverview?['waste_summary'] as Map<String, dynamic>? ?? {},
+    final impactSummary = Map<String, dynamic>.from(
+      mlOverview?['impact_summary'] as Map<String, dynamic>? ?? {},
+    );
+    final confidenceBreakdown = Map<String, dynamic>.from(
+      mlOverview?['confidence_breakdown'] as Map<String, dynamic>? ?? {},
     );
     final topRecommendations = List<Map<String, dynamic>>.from(
       (mlOverview?['top_recommendations'] as List<dynamic>? ?? []).map(
@@ -373,6 +413,11 @@ class _AdminAnalyticsScreenState extends State<AdminAnalyticsScreen> {
     final lowConfidenceItems = List<Map<String, dynamic>>.from(
       (mlOverview?['low_confidence_items'] as List<dynamic>? ?? []).map(
         (e) => Map<String, dynamic>.from(e as Map),
+      ),
+    );
+    final operatorActions = List<String>.from(
+      (mlOverview?['operator_actions'] as List<dynamic>? ?? []).map(
+        (e) => e.toString(),
       ),
     );
 
@@ -387,6 +432,147 @@ class _AdminAnalyticsScreenState extends State<AdminAnalyticsScreen> {
               child: ListView(
                 padding: const EdgeInsets.all(14),
                 children: [
+                  sectionCard(
+                    title: 'ML Impact Snapshot',
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          impactSummary['headline']?.toString() ??
+                              'The admin view will show clearer ML impact once live forecasting, actuals, and waste logs build up.',
+                          style: const TextStyle(
+                            color: Color(0xFF334155),
+                            fontWeight: FontWeight.w600,
+                            height: 1.5,
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        Wrap(
+                          spacing: 10,
+                          runSpacing: 10,
+                          children: [
+                            statusPill(
+                              impactSummary['model_health']?.toString() ??
+                                  'Not trained',
+                            ),
+                            statusPill(
+                              impactSummary['data_readiness']?.toString() ??
+                                  'Needs more live canteen logs',
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        Wrap(
+                          spacing: 10,
+                          runSpacing: 10,
+                          children: [
+                            chipStat(
+                              'Waste Saved vs Baseline',
+                              '${impactSummary['waste_saved_units'] ?? 0}',
+                              const Color(0xFF15803D),
+                            ),
+                            chipStat(
+                              'Waste Reduction',
+                              '${impactSummary['waste_reduction_percentage'] ?? 0}%',
+                              const Color(0xFF0F7A8B),
+                            ),
+                            chipStat(
+                              'Resolved Predictions',
+                              '${mlAccuracySummary['resolved_predictions'] ?? 0}/${mlAccuracySummary['total_predictions'] ?? 0}',
+                              const Color(0xFF2E6FD8),
+                            ),
+                            chipStat(
+                              'Forecast Coverage',
+                              '${impactSummary['forecast_coverage_percentage'] ?? 0}%',
+                              const Color(0xFF7C3AED),
+                            ),
+                            chipStat(
+                              'Overall Accuracy',
+                              '${mlAccuracySummary['overall_accuracy_percentage'] ?? 0}%',
+                              const Color(0xFF2E9F65),
+                            ),
+                            chipStat(
+                              'Low-Confidence Share',
+                              '${impactSummary['low_confidence_rate'] ?? 0}%',
+                              const Color(0xFFB5482A),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        dataRow(
+                          'Baseline Waste',
+                          '${impactSummary['baseline_waste'] ?? 0}',
+                        ),
+                        dataRow(
+                          'Waste After ML',
+                          '${impactSummary['waste_after_ml'] ?? 0}',
+                        ),
+                        dataRow(
+                          'Prediction Logs Used in Waste Analysis',
+                          '${impactSummary['prediction_count_used'] ?? 0}',
+                        ),
+                        dataRow(
+                          'Pending Actuals',
+                          '${mlAccuracySummary['pending_predictions'] ?? 0}',
+                        ),
+                        const SizedBox(height: 16),
+                        const Text(
+                          'What Admin Should Do Next',
+                          style: TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                        const SizedBox(height: 12),
+                        simpleList<String>(
+                          items: operatorActions,
+                          emptyText: 'No operator guidance is available yet.',
+                          builder: (item, index) => Container(
+                            margin: const EdgeInsets.only(bottom: 8),
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF8FAFC),
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(
+                                color: const Color(0xFFE2E8F0),
+                              ),
+                            ),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Container(
+                                  width: 24,
+                                  height: 24,
+                                  alignment: Alignment.center,
+                                  decoration: const BoxDecoration(
+                                    color: Color(0xFFE0F2FE),
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: Text(
+                                    '${index + 1}',
+                                    style: const TextStyle(
+                                      color: Color(0xFF0F172A),
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Text(
+                                    item,
+                                    style: const TextStyle(
+                                      color: Color(0xFF334155),
+                                      fontWeight: FontWeight.w600,
+                                      height: 1.4,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
                   sectionCard(
                     title: 'ML System Overview',
                     child: Column(
@@ -412,9 +598,9 @@ class _AdminAnalyticsScreenState extends State<AdminAnalyticsScreen> {
                               const Color(0xFF2E9F65),
                             ),
                             chipStat(
-                              'Pending Actuals',
-                              '${mlAccuracySummary['pending_predictions'] ?? 0}',
-                              const Color(0xFFB5482A),
+                              'Resolved Prediction Rate',
+                              '${mlAccuracySummary['resolved_prediction_rate'] ?? 0}%',
+                              const Color(0xFFB45309),
                             ),
                           ],
                         ),
@@ -422,6 +608,10 @@ class _AdminAnalyticsScreenState extends State<AdminAnalyticsScreen> {
                         dataRow(
                           'Forecasted Items',
                           '${demandSummary['items_forecasted'] ?? 0}',
+                        ),
+                        dataRow(
+                          'Active Menu Items',
+                          '${demandSummary['active_menu_items'] ?? 0}',
                         ),
                         dataRow(
                           'Predicted Demand Total',
@@ -435,13 +625,32 @@ class _AdminAnalyticsScreenState extends State<AdminAnalyticsScreen> {
                           'Average Confidence',
                           '${demandSummary['average_confidence'] ?? 0}%',
                         ),
-                        dataRow(
-                          'Resolved Predictions',
-                          '${mlAccuracySummary['resolved_predictions'] ?? 0}',
+                        const SizedBox(height: 16),
+                        const Text(
+                          'Low Confidence Breakdown',
+                          style: TextStyle(fontWeight: FontWeight.w700),
                         ),
-                        dataRow(
-                          'Estimated Waste Reduction',
-                          '${wasteSummary['estimated_reduction'] ?? 0}',
+                        const SizedBox(height: 10),
+                        Wrap(
+                          spacing: 10,
+                          runSpacing: 10,
+                          children: [
+                            chipStat(
+                              'Limited History',
+                              '${confidenceBreakdown['limited_history'] ?? 0}',
+                              const Color(0xFFB5482A),
+                            ),
+                            chipStat(
+                              'Weak Slot History',
+                              '${confidenceBreakdown['weak_same_slot_history'] ?? 0}',
+                              const Color(0xFFF97316),
+                            ),
+                            chipStat(
+                              'Other',
+                              '${confidenceBreakdown['other'] ?? 0}',
+                              const Color(0xFF64748B),
+                            ),
+                          ],
                         ),
                         const SizedBox(height: 16),
                         const Text(
@@ -457,7 +666,7 @@ class _AdminAnalyticsScreenState extends State<AdminAnalyticsScreen> {
                             child: ListTile(
                               title: Text(item['food_item']?.toString() ?? 'Unknown'),
                               subtitle: Text(
-                                'Predict ${item['predicted_demand'] ?? 0} • Prepare ${item['suggested_preparation'] ?? 0}',
+                                'Predict ${item['predicted_demand'] ?? 0} • Prepare ${item['suggested_preparation'] ?? 0} • Waste ${item['expected_waste'] ?? 0}',
                               ),
                               trailing: Text(
                                 item['confidence_label']?.toString() ?? 'Low',

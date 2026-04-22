@@ -300,6 +300,18 @@ class _PredictionScreenState extends State<PredictionScreen> {
         (item) => Map<String, dynamic>.from(item as Map),
       ),
     );
+    final menuBasis = Map<String, dynamic>.from(
+      _data?['menu_basis'] as Map<String, dynamic>? ?? {},
+    );
+    final activeMenuItems = List<Map<String, dynamic>>.from(
+      (menuBasis['items'] as List<dynamic>? ?? []).map(
+        (item) => Map<String, dynamic>.from(item as Map),
+      ),
+    );
+    final activeMenuNames = activeMenuItems
+        .map((item) => item['name']?.toString() ?? '')
+        .where((name) => name.trim().isNotEmpty)
+        .toList();
 
     return Scaffold(
       backgroundColor: const Color(0xFFF6F8FC),
@@ -374,10 +386,96 @@ class _PredictionScreenState extends State<PredictionScreen> {
                               fontWeight: FontWeight.w600,
                             ),
                           ),
+                          if (activeMenuNames.isNotEmpty) ...[
+                            const SizedBox(height: 12),
+                            Text(
+                              'Forecast basis: ${activeMenuNames.length} active menu items',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
                         ],
                       ),
                     ),
                     const SizedBox(height: 18),
+                    if (activeMenuNames.isNotEmpty)
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(22),
+                          border: Border.all(color: const Color(0xFFE2E8F0)),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Active Menu Forecast Base',
+                              style: TextStyle(
+                                color: Color(0xFF0F172A),
+                                fontWeight: FontWeight.w800,
+                                fontSize: 16,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            const Text(
+                              'These are the current menu items the forecasting engine is using.',
+                              style: TextStyle(
+                                color: Color(0xFF64748B),
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 14),
+                            Wrap(
+                              spacing: 10,
+                              runSpacing: 10,
+                              children: activeMenuItems.map((item) {
+                                final price = _toInt(item['price']);
+                                final category =
+                                    item['category']?.toString() ?? 'general';
+                                return Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 10,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFF8FAFC),
+                                    borderRadius: BorderRadius.circular(16),
+                                    border: Border.all(
+                                      color: const Color(0xFFE2E8F0),
+                                    ),
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        item['name']?.toString() ?? 'Menu item',
+                                        style: const TextStyle(
+                                          color: Color(0xFF0F172A),
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        '${category.toUpperCase()} • Rs.$price',
+                                        style: const TextStyle(
+                                          color: Color(0xFF64748B),
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              }).toList(),
+                            ),
+                          ],
+                        ),
+                      ),
+                    if (activeMenuNames.isNotEmpty) const SizedBox(height: 18),
                     GridView.count(
                       shrinkWrap: true,
                       physics: const NeverScrollableScrollPhysics(),

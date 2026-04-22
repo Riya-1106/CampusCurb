@@ -251,14 +251,18 @@ def _safe_read_menu() -> list[dict[str, Any]]:
 
     cleaned = []
     for row in rows:
+        if not isinstance(row, dict):
+            continue
         name = str(row.get("name", "")).strip()
         if not name:
             continue
+        item_id = str(row.get("id") or row.get("item_id") or _normalize_food_name(name)).strip()
         cleaned.append(
             {
+                "id": item_id,
                 "name": name,
                 "price": int(row.get("price", DEFAULT_ROW["price"]) or DEFAULT_ROW["price"]),
-                "category": str(row.get("category", "")).strip() or _infer_category(name),
+                "category": str(row.get("category", "")).strip().lower() or _infer_category(name),
             }
         )
     return cleaned or DEFAULT_MENU_ITEMS
@@ -1105,10 +1109,10 @@ def predict_live_demand(
     return result
 
 
-def get_forecast_menu_items(limit: int = 8) -> list[dict[str, Any]]:
+def get_forecast_menu_items(limit: int | None = None) -> list[dict[str, Any]]:
     menu_rows = _safe_read_menu()
     if menu_rows:
-        return menu_rows[:limit]
+        return menu_rows[:limit] if limit is not None else menu_rows
 
     dataset_df = _safe_read_dataset()
     operations_df = _safe_read_operations()
@@ -1117,7 +1121,7 @@ def get_forecast_menu_items(limit: int = 8) -> list[dict[str, Any]]:
             dataset_df.groupby("food_item")[TARGET_COLUMN]
             .mean()
             .sort_values(ascending=False)
-            .head(limit)
+            .head(limit or len(dataset_df))
             .index.tolist()
         )
         return [
@@ -1128,7 +1132,7 @@ def get_forecast_menu_items(limit: int = 8) -> list[dict[str, Any]]:
             }
             for item in top_items
         ]
-    return DEFAULT_MENU_ITEMS[:limit]
+    return DEFAULT_MENU_ITEMS[:limit] if limit is not None else DEFAULT_MENU_ITEMS
 
 
 def build_demand_dashboard(
@@ -1174,6 +1178,7 @@ def build_demand_dashboard(
         "dashboard": rows,
         "summary": {
             "items_forecasted": len(rows),
+            "active_menu_items": len(menu_rows),
             "total_predicted_demand": total_predicted,
             "total_suggested_preparation": total_preparation,
             "estimated_total_waste": max(total_preparation - total_predicted, 0),
@@ -1184,6 +1189,19 @@ def build_demand_dashboard(
             "time_slot": time_slot or _hour_to_slot(target_datetime.hour),
         },
         "low_confidence_items": low_confidence_items,
+        "menu_basis": {
+            "source": "active_menu",
+            "items": [
+                {
+                    "id": str(item.get("id") or _normalize_food_name(item.get("name"))),
+                    "name": str(item.get("name", "")).strip(),
+                    "category": str(item.get("category", "general")).strip().lower() or "general",
+                    "price": int(item.get("price", 0) or 0),
+                }
+                for item in menu_rows
+                if str(item.get("name", "")).strip()
+            ],
+        },
         "formula": "Predicted demand + 10% safety margin, adjusted by recent demand signals.",
         "example": "If the model predicts 120 meals, suggested preparation becomes 132.",
         "model": {
@@ -1455,18 +1473,128 @@ def build_ml_system_overview() -> dict[str, Any]:
     demand = build_demand_dashboard(log_request=False)
     accuracy = compute_prediction_accuracy_summary()
     waste = compute_waste_summary()
+    demand_summary = demand.get("summary", {})
+    top_recommendations = demand.get("dashboard", [])[:3]
+    low_confidence_items = [
+        item for item in demand.get("dashboard", []) if item.get("confidence_label") == "Low"
+    ]
+
+    total_predictions = int(accuracy.get("total_predictions", 0) or 0)
+    resolved_predictions = int(accuracy.get("resolved_predictions", 0) or 0)
+    pending_predictions = int(accuracy.get("pending_predictions", 0) or 0)
+    overall_accuracy = float(accuracy.get("overall_accuracy_percentage", 0.0) or 0.0)
+
+    items_forecasted = int(demand_summary.get("items_forecasted", 0) or 0)
+    active_menu_items = int(demand_summary.get("active_menu_items", items_forecasted) or items_forecasted)
+    low_confidence_count = int(demand_summary.get("low_confidence_count", len(low_confidence_items)) or len(low_confidence_items))
+
+    baseline_waste = int(waste.get("baseline_waste", 0) or 0)
+    estimated_reduction = int(waste.get("estimated_reduction", 0) or 0)
+    after_ml_waste = int(waste.get("estimated_waste_after_ml", 0) or 0)
+    prediction_count_used = int(waste.get("prediction_count_used", 0) or 0)
+
+    forecast_coverage_percentage = round(
+        (items_forecasted / active_menu_items * 100) if active_menu_items else 0.0,
+        2,
+    )
+    resolved_prediction_rate = round(
+        (resolved_predictions / total_predictions * 100) if total_predictions else 0.0,
+        2,
+    )
+    low_confidence_rate = round(
+        (low_confidence_count / items_forecasted * 100) if items_forecasted else 0.0,
+        2,
+    )
+    waste_reduction_percentage = round(
+        (estimated_reduction / baseline_waste * 100) if baseline_waste else 0.0,
+        2,
+    )
+
+    best_r2 = float(training_metrics.get("best_r2", 0.0) or 0.0)
+    if best_r2 >= 0.75:
+        model_health = "Strong"
+    elif best_r2 >= 0.55:
+        model_health = "Promising"
+    elif best_r2 > 0:
+        model_health = "Early-stage"
+    else:
+        model_health = "Not trained"
+
+    if low_confidence_rate <= 35 and resolved_prediction_rate >= 60:
+        data_readiness = "Operationally reliable"
+    elif resolved_prediction_rate >= 25:
+        data_readiness = "Improving with live data"
+    else:
+        data_readiness = "Needs more live canteen logs"
+
+    operator_actions: list[str] = []
+    if active_menu_items and items_forecasted < active_menu_items:
+        operator_actions.append(
+            f"Forecast coverage is {items_forecasted}/{active_menu_items}; sync missing active menu items before service."
+        )
+    if low_confidence_rate >= 50:
+        operator_actions.append(
+            "Many forecasts are low-confidence; log prepared, sold, and wasted values daily to strengthen live signals."
+        )
+    if resolved_prediction_rate < 40:
+        operator_actions.append(
+            "Only a small share of predictions have matched actuals; complete end-of-slot operations logs more consistently."
+        )
+    if baseline_waste and estimated_reduction <= 0:
+        operator_actions.append(
+            "Waste impact is not visible yet; compare suggested prep against actual prepared quantities for each slot."
+        )
+    if not operator_actions:
+        operator_actions.append(
+            "The ML loop is healthy right now; keep logging operations so accuracy and waste tracking stay current."
+        )
+
+    low_confidence_breakdown = {
+        "limited_history": 0,
+        "weak_same_slot_history": 0,
+        "other": 0,
+    }
+    for item in low_confidence_items:
+        snapshot = item.get("feature_snapshot") or {}
+        history_points = int(snapshot.get("history_points", 0) or 0)
+        same_slot_points = int(snapshot.get("same_slot_points", 0) or 0)
+        if history_points < 3:
+            low_confidence_breakdown["limited_history"] += 1
+        elif same_slot_points < 2:
+            low_confidence_breakdown["weak_same_slot_history"] += 1
+        else:
+            low_confidence_breakdown["other"] += 1
+
     return {
         "training": training_metrics,
-        "demand_summary": demand.get("summary", {}),
-        "top_recommendations": demand.get("dashboard", [])[:3],
-        "low_confidence_items": [
-            item for item in demand.get("dashboard", []) if item.get("confidence_label") == "Low"
-        ],
+        "demand_summary": demand_summary,
+        "top_recommendations": top_recommendations,
+        "low_confidence_items": low_confidence_items,
         "accuracy_summary": {
-            "overall_accuracy_percentage": accuracy.get("overall_accuracy_percentage", 0.0),
-            "pending_predictions": accuracy.get("pending_predictions", 0),
-            "resolved_predictions": accuracy.get("resolved_predictions", 0),
-            "total_predictions": accuracy.get("total_predictions", 0),
+            "overall_accuracy_percentage": overall_accuracy,
+            "pending_predictions": pending_predictions,
+            "resolved_predictions": resolved_predictions,
+            "total_predictions": total_predictions,
+            "resolved_prediction_rate": resolved_prediction_rate,
         },
         "waste_summary": waste,
+        "impact_summary": {
+            "model_health": model_health,
+            "data_readiness": data_readiness,
+            "forecast_coverage_percentage": forecast_coverage_percentage,
+            "resolved_prediction_rate": resolved_prediction_rate,
+            "low_confidence_rate": low_confidence_rate,
+            "waste_reduction_percentage": waste_reduction_percentage,
+            "waste_saved_units": estimated_reduction,
+            "baseline_waste": baseline_waste,
+            "waste_after_ml": after_ml_waste,
+            "prediction_count_used": prediction_count_used,
+            "headline": (
+                f"ML currently covers {items_forecasted}/{active_menu_items or items_forecasted} active menu items, "
+                f"has matched {resolved_predictions}/{total_predictions or max(resolved_predictions, 1)} predictions with actuals, "
+                f"and is tracking {estimated_reduction} units of estimated waste reduction versus baseline."
+            ),
+        },
+        "operator_actions": operator_actions,
+        "confidence_breakdown": low_confidence_breakdown,
     }

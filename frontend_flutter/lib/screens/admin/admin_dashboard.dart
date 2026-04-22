@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import '../../services/auth_service.dart';
+import '../../services/prediction_service.dart';
 import '../auth/login_screen.dart';
 import 'menu_upload_screen.dart';
 import 'menu_approval_screen.dart';
@@ -21,6 +21,10 @@ class _AdminDashboardState extends State<AdminDashboard> with TickerProviderStat
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
   late Animation<Offset> _slideAnimation;
+  final PredictionService _predictionService = PredictionService();
+
+  Map<String, dynamic>? _mlOverviewData;
+  bool _analyticsLoading = true;
 
   @override
   void initState() {
@@ -47,12 +51,61 @@ class _AdminDashboardState extends State<AdminDashboard> with TickerProviderStat
     ));
     
     _animationController.forward();
+    _loadDashboardData();
   }
 
   @override
   void dispose() {
     _animationController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadDashboardData() async {
+    setState(() {
+      _analyticsLoading = true;
+    });
+
+    try {
+      final mlOverview = await _predictionService.getMlOverview();
+      if (!mounted) return;
+      setState(() {
+        _mlOverviewData = mlOverview;
+        _analyticsLoading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _analyticsLoading = false;
+      });
+    }
+  }
+
+  int _toInt(dynamic value) {
+    if (value is int) return value;
+    if (value is num) return value.round();
+    return int.tryParse(value?.toString() ?? '') ?? 0;
+  }
+
+  double _toDouble(dynamic value) {
+    if (value is double) return value;
+    if (value is num) return value.toDouble();
+    return double.tryParse(value?.toString() ?? '') ?? 0;
+  }
+
+  Color _statusColor(String value) {
+    final normalized = value.trim().toLowerCase();
+    if (normalized.contains('strong') ||
+        normalized.contains('promising') ||
+        normalized.contains('reliable')) {
+      return const Color(0xFF10B981);
+    }
+    if (normalized.contains('improving')) {
+      return const Color(0xFF3B82F6);
+    }
+    if (normalized.contains('needs') || normalized.contains('early')) {
+      return const Color(0xFFF59E0B);
+    }
+    return const Color(0xFF6B7280);
   }
 
   @override
@@ -86,7 +139,9 @@ class _AdminDashboardState extends State<AdminDashboard> with TickerProviderStat
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              _buildQuickActionsSection(),
+                              _buildQuickActionsSection(context),
+                              const SizedBox(height: 32),
+                              _buildMlImpactSection(),
                               const SizedBox(height: 32),
                               _buildStatsOverview(),
                               const SizedBox(height: 32),
@@ -188,6 +243,7 @@ class _AdminDashboardState extends State<AdminDashboard> with TickerProviderStat
               ),
               onPressed: () async {
                 await AuthService().logout();
+                if (!mounted) return;
                 Navigator.pushReplacement(
                     context,
                     MaterialPageRoute(
@@ -201,7 +257,7 @@ class _AdminDashboardState extends State<AdminDashboard> with TickerProviderStat
   }
 
   // Quick Actions Section
-  Widget _buildQuickActionsSection() {
+  Widget _buildQuickActionsSection(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -238,7 +294,7 @@ class _AdminDashboardState extends State<AdminDashboard> with TickerProviderStat
             children: [
               _buildModernQuickAction(context, "Add User", Icons.person_add_rounded, const Color(0xFF10B981), null),
               _buildModernQuickAction(context, "New Menu", Icons.add_circle_rounded, const Color(0xFF3B82F6), const MenuUploadScreen()),
-              _buildModernQuickAction(context, "View Reports", Icons.assessment_rounded, const Color(0xFF8B5CF6), null),
+              _buildModernQuickAction(context, "View Reports", Icons.assessment_rounded, const Color(0xFF8B5CF6), const AdminAnalyticsScreen()),
               _buildModernQuickAction(context, "Settings", Icons.settings_rounded, const Color(0xFFF59E0B), null),
               _buildModernQuickAction(context, "Help", Icons.help_rounded, const Color(0xFFEF4444), null),
             ],
@@ -248,50 +304,218 @@ class _AdminDashboardState extends State<AdminDashboard> with TickerProviderStat
     );
   }
 
-  // Stats Overview Section
-  Widget _buildStatsOverview() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: const Color(0xFF4F46E5).withOpacity(0.1),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: const Icon(
-                Icons.analytics_rounded,
-                color: Color(0xFF4F46E5),
-                size: 20,
-              ),
-            ),
-            const SizedBox(width: 12),
-            const Text(
-              "Dashboard Overview",
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w700,
-                color: Color(0xFF1F2937),
-              ),
+  Widget _buildMlImpactSection() {
+    final impactSummary = Map<String, dynamic>.from(
+      _mlOverviewData?['impact_summary'] as Map<String, dynamic>? ?? {},
+    );
+    final training = Map<String, dynamic>.from(
+      _mlOverviewData?['training'] as Map<String, dynamic>? ?? {},
+    );
+    final accuracySummary = Map<String, dynamic>.from(
+      _mlOverviewData?['accuracy_summary'] as Map<String, dynamic>? ?? {},
+    );
+    final operatorActions = List<String>.from(
+      (_mlOverviewData?['operator_actions'] as List<dynamic>? ?? []).map(
+        (item) => item.toString(),
+      ),
+    );
+
+    if (_analyticsLoading) {
+      return _buildSectionShell(
+        icon: Icons.insights_rounded,
+        title: 'ML Impact Snapshot',
+        child: const SizedBox(
+          height: 120,
+          child: Center(child: CircularProgressIndicator()),
+        ),
+      );
+    }
+
+    final headline = impactSummary['headline']?.toString() ??
+        'ML impact will appear here after the forecasting engine and canteen logs sync.';
+    final modelHealth = impactSummary['model_health']?.toString() ?? 'Not trained';
+    final dataReadiness = impactSummary['data_readiness']?.toString() ?? 'Waiting for live data';
+
+    return _buildSectionShell(
+      icon: Icons.insights_rounded,
+      title: 'ML Impact Snapshot',
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            colors: [Color(0xFF0F766E), Color(0xFF2563EB)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(24),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFF2563EB).withOpacity(0.15),
+              blurRadius: 18,
+              offset: const Offset(0, 8),
             ),
           ],
         ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                _buildStatusPill(modelHealth),
+                _buildStatusPill(dataReadiness),
+                _buildStatusPill(
+                  '${_toDouble(accuracySummary['resolved_prediction_rate']).toStringAsFixed(1)}% resolved',
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Text(
+              headline,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+                height: 1.45,
+              ),
+            ),
+            const SizedBox(height: 18),
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: [
+                _buildHighlightChip(
+                  'Waste Saved',
+                  '${_toInt(impactSummary['waste_saved_units'])}',
+                ),
+                _buildHighlightChip(
+                  'Waste Reduction',
+                  '${_toDouble(impactSummary['waste_reduction_percentage']).toStringAsFixed(1)}%',
+                ),
+                _buildHighlightChip(
+                  'Best Model',
+                  training['best_model_name']?.toString() ?? 'N/A',
+                ),
+                _buildHighlightChip(
+                  'Best R²',
+                  _toDouble(training['best_r2']).toStringAsFixed(2),
+                ),
+              ],
+            ),
+            if (operatorActions.isNotEmpty) ...[
+              const SizedBox(height: 18),
+              const Text(
+                'Immediate admin actions',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 15,
+                ),
+              ),
+              const SizedBox(height: 10),
+              ...operatorActions.take(2).map(
+                (item) => Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Padding(
+                        padding: EdgeInsets.only(top: 2),
+                        child: Icon(
+                          Icons.check_circle_rounded,
+                          color: Colors.white,
+                          size: 18,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          item,
+                          style: const TextStyle(
+                            color: Color(0xFFE0F2FE),
+                            fontWeight: FontWeight.w600,
+                            height: 1.4,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Stats Overview Section
+  Widget _buildStatsOverview() {
+    final impactSummary = Map<String, dynamic>.from(
+      _mlOverviewData?['impact_summary'] as Map<String, dynamic>? ?? {},
+    );
+    final demandSummary = Map<String, dynamic>.from(
+      _mlOverviewData?['demand_summary'] as Map<String, dynamic>? ?? {},
+    );
+    final accuracySummary = Map<String, dynamic>.from(
+      _mlOverviewData?['accuracy_summary'] as Map<String, dynamic>? ?? {},
+    );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildSectionHeader(Icons.analytics_rounded, "Dashboard Overview"),
         const SizedBox(height: 20),
         Row(
           children: [
-            Expanded(child: _buildModernStatCard("Total Users", "1,234", Icons.people_rounded, const Color(0xFF10B981))),
+            Expanded(
+              child: _buildModernStatCard(
+                "Forecast Coverage",
+                '${_toDouble(impactSummary['forecast_coverage_percentage']).toStringAsFixed(1)}%',
+                Icons.track_changes_rounded,
+                const Color(0xFF10B981),
+                badgeLabel: '${_toInt(demandSummary['items_forecasted'])}/${_toInt(demandSummary['active_menu_items'])} items',
+              ),
+            ),
             const SizedBox(width: 16),
-            Expanded(child: _buildModernStatCard("Pending Menus", "23", Icons.restaurant_rounded, const Color(0xFF3B82F6))),
+            Expanded(
+              child: _buildModernStatCard(
+                "Resolved Predictions",
+                '${_toInt(accuracySummary['resolved_predictions'])}',
+                Icons.verified_rounded,
+                const Color(0xFF3B82F6),
+                badgeLabel:
+                    '${_toDouble(accuracySummary['resolved_prediction_rate']).toStringAsFixed(1)}% matched',
+              ),
+            ),
           ],
         ),
         const SizedBox(height: 16),
         Row(
           children: [
-            Expanded(child: _buildModernStatCard("Active Orders", "89", Icons.shopping_cart_rounded, const Color(0xFF8B5CF6))),
+            Expanded(
+              child: _buildModernStatCard(
+                "Waste Saved",
+                '${_toInt(impactSummary['waste_saved_units'])}',
+                Icons.eco_rounded,
+                const Color(0xFF8B5CF6),
+                badgeLabel:
+                    '${_toDouble(impactSummary['waste_reduction_percentage']).toStringAsFixed(1)}% reduction',
+              ),
+            ),
             const SizedBox(width: 16),
-            Expanded(child: _buildModernStatCard("Waste Tracked", "42 kg", Icons.delete_rounded, const Color(0xFFF59E0B))),
+            Expanded(
+              child: _buildModernStatCard(
+                "Low Confidence Items",
+                '${_toInt(demandSummary['low_confidence_count'])}',
+                Icons.warning_amber_rounded,
+                const Color(0xFFF59E0B),
+                badgeLabel:
+                    '${_toDouble(impactSummary['low_confidence_rate']).toStringAsFixed(1)}% risk',
+              ),
+            ),
           ],
         ),
       ],
@@ -401,6 +625,101 @@ class _AdminDashboardState extends State<AdminDashboard> with TickerProviderStat
     );
   }
 
+  Widget _buildSectionHeader(IconData icon, String title) {
+    return Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: const Color(0xFF4F46E5).withOpacity(0.1),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Icon(
+            icon,
+            color: const Color(0xFF4F46E5),
+            size: 20,
+          ),
+        ),
+        const SizedBox(width: 12),
+        Text(
+          title,
+          style: const TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.w700,
+            color: Color(0xFF1F2937),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSectionShell({
+    required IconData icon,
+    required String title,
+    required Widget child,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildSectionHeader(icon, title),
+        const SizedBox(height: 20),
+        child,
+      ],
+    );
+  }
+
+  Widget _buildStatusPill(String label) {
+    final color = _statusColor(label);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.14),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: Colors.white.withOpacity(0.18)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color == const Color(0xFF6B7280) ? Colors.white : color,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHighlightChip(String label, String value) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.14),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withOpacity(0.12)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            value,
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w800,
+              fontSize: 16,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            style: const TextStyle(
+              color: Color(0xFFE0F2FE),
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   // Modern Quick Action Card
   Widget _buildModernQuickAction(
     BuildContext context,
@@ -480,7 +799,13 @@ class _AdminDashboardState extends State<AdminDashboard> with TickerProviderStat
   }
 
   // Modern Stat Card
-  Widget _buildModernStatCard(String title, String value, IconData icon, Color color) {
+  Widget _buildModernStatCard(
+    String title,
+    String value,
+    IconData icon,
+    Color color, {
+    String? badgeLabel,
+  }) {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -516,32 +841,22 @@ class _AdminDashboardState extends State<AdminDashboard> with TickerProviderStat
                 ),
               ),
               const Spacer(),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: color.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.trending_up_rounded,
+              if (badgeLabel != null)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: color.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    badgeLabel,
+                    style: TextStyle(
+                      fontSize: 10,
                       color: color,
-                      size: 12,
+                      fontWeight: FontWeight.w700,
                     ),
-                    const SizedBox(width: 4),
-                    Text(
-                      "+12%",
-                      style: TextStyle(
-                        fontSize: 10,
-                        color: color,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
-              ),
             ],
           ),
           const SizedBox(height: 16),

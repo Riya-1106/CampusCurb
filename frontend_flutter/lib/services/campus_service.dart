@@ -289,9 +289,18 @@ class CampusService {
     }
 
     return const [
-      {'id': 'demo-1', 'item_id': 'demo-1', 'name': 'Veg Wrap', 'price': 80, 'category': 'snack', 'approved': true},
+      {'id': 'demo-1', 'item_id': 'demo-1', 'name': 'Veg Wrap', 'price': 80, 'category': 'fastfood', 'approved': true},
       {'id': 'demo-2', 'item_id': 'demo-2', 'name': 'Masala Dosa', 'price': 50, 'category': 'breakfast', 'approved': true},
       {'id': 'demo-3', 'item_id': 'demo-3', 'name': 'Cheese Pizza', 'price': 120, 'category': 'meal', 'approved': true},
+      {'id': 'demo-4', 'item_id': 'demo-4', 'name': 'Idli', 'price': 30, 'category': 'breakfast', 'approved': true},
+      {'id': 'demo-5', 'item_id': 'demo-5', 'name': 'Coffee', 'price': 66, 'category': 'beverage', 'approved': true},
+      {'id': 'demo-6', 'item_id': 'demo-6', 'name': 'Tea', 'price': 63, 'category': 'beverage', 'approved': true},
+      {'id': 'demo-7', 'item_id': 'demo-7', 'name': 'Milk', 'price': 63, 'category': 'beverage', 'approved': true},
+      {'id': 'demo-8', 'item_id': 'demo-8', 'name': 'Sandwich', 'price': 66, 'category': 'fastfood', 'approved': true},
+      {'id': 'demo-9', 'item_id': 'demo-9', 'name': 'Noodles', 'price': 64, 'category': 'fastfood', 'approved': true},
+      {'id': 'demo-10', 'item_id': 'demo-10', 'name': 'Burger', 'price': 68, 'category': 'fastfood', 'approved': true},
+      {'id': 'demo-11', 'item_id': 'demo-11', 'name': 'Pasta', 'price': 67, 'category': 'fastfood', 'approved': true},
+      {'id': 'demo-12', 'item_id': 'demo-12', 'name': 'Coke diet', 'price': 40, 'category': 'beverage', 'approved': true},
     ];
   }
 
@@ -333,10 +342,6 @@ class CampusService {
   }
 
   Future<List<Map<String, dynamic>>> getMenu() async {
-    if (kIsWeb) {
-      return _menuFromFirestore();
-    }
-
     try {
       final res = await http
           .get(Uri.parse('$baseUrl/menu'))
