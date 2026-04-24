@@ -6,6 +6,7 @@ import 'api_config.dart';
 
 class CollegeExchangeService {
   static String get _baseUrl => ApiConfig.baseUrl;
+  static const Duration _exchangeTimeout = Duration(seconds: 8);
 
   List<Map<String, dynamic>> _toMapList(dynamic value) {
     if (value is List) {
@@ -25,18 +26,20 @@ class CollegeExchangeService {
     String notes = '',
     List<String> allowedDomains = const [],
   }) async {
-    final response = await http.post(
-      Uri.parse('$_baseUrl/college/signup-request'),
-      headers: {'Content-Type': 'application/json'},
-      body: json.encode({
-        'college_name': collegeName,
-        'contact_name': contactName,
-        'email': email,
-        'phone': phone,
-        'notes': notes,
-        'allowed_domains': allowedDomains,
-      }),
-    );
+    final response = await http
+        .post(
+          Uri.parse('$_baseUrl/college/signup-request'),
+          headers: {'Content-Type': 'application/json'},
+          body: json.encode({
+            'college_name': collegeName,
+            'contact_name': contactName,
+            'email': email,
+            'phone': phone,
+            'notes': notes,
+            'allowed_domains': allowedDomains,
+          }),
+        )
+        .timeout(_exchangeTimeout);
 
     if (response.statusCode != 200) {
       throw Exception('Signup request failed: ${response.body}');
@@ -48,7 +51,7 @@ class CollegeExchangeService {
     if (user == null) {
       throw Exception('You must be logged in as a college account.');
     }
-    final token = await user.getIdToken(true);
+    final token = await user.getIdToken(true).timeout(_exchangeTimeout);
     if (token == null || token.isEmpty) {
       throw Exception('Unable to fetch Firebase token.');
     }
@@ -56,10 +59,12 @@ class CollegeExchangeService {
   }
 
   Future<List<Map<String, dynamic>>> getMyListings() async {
-    final response = await http.get(
-      Uri.parse('$_baseUrl/college/listings/mine'),
-      headers: {'Authorization': 'Bearer ${await _token()}'},
-    );
+    final response = await http
+        .get(
+          Uri.parse('$_baseUrl/college/listings/mine'),
+          headers: {'Authorization': 'Bearer ${await _token()}'},
+        )
+        .timeout(_exchangeTimeout);
     if (response.statusCode != 200) {
       throw Exception('Failed to load your listings');
     }
@@ -68,10 +73,12 @@ class CollegeExchangeService {
   }
 
   Future<List<Map<String, dynamic>>> getAvailableListings() async {
-    final response = await http.get(
-      Uri.parse('$_baseUrl/college/listings/available'),
-      headers: {'Authorization': 'Bearer ${await _token()}'},
-    );
+    final response = await http
+        .get(
+          Uri.parse('$_baseUrl/college/listings/available'),
+          headers: {'Authorization': 'Bearer ${await _token()}'},
+        )
+        .timeout(_exchangeTimeout);
     if (response.statusCode != 200) {
       throw Exception('Failed to load available listings');
     }
@@ -80,10 +87,12 @@ class CollegeExchangeService {
   }
 
   Future<List<Map<String, dynamic>>> getMyRequests() async {
-    final response = await http.get(
-      Uri.parse('$_baseUrl/college/food-requests'),
-      headers: {'Authorization': 'Bearer ${await _token()}'},
-    );
+    final response = await http
+        .get(
+          Uri.parse('$_baseUrl/college/food-requests'),
+          headers: {'Authorization': 'Bearer ${await _token()}'},
+        )
+        .timeout(_exchangeTimeout);
     if (response.statusCode != 200) {
       throw Exception('Failed to load food requests');
     }
@@ -98,20 +107,22 @@ class CollegeExchangeService {
     String pickupWindow = '',
     String notes = '',
   }) async {
-    final response = await http.post(
-      Uri.parse('$_baseUrl/college/listings'),
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ${await _token()}',
-      },
-      body: json.encode({
-        'food_item': foodItem,
-        'quantity': quantity,
-        'unit': unit,
-        'pickup_window': pickupWindow,
-        'notes': notes,
-      }),
-    );
+    final response = await http
+        .post(
+          Uri.parse('$_baseUrl/college/listings'),
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ${await _token()}',
+          },
+          body: json.encode({
+            'food_item': foodItem,
+            'quantity': quantity,
+            'unit': unit,
+            'pickup_window': pickupWindow,
+            'notes': notes,
+          }),
+        )
+        .timeout(_exchangeTimeout);
     if (response.statusCode != 200) {
       throw Exception('Failed to submit listing: ${response.body}');
     }
@@ -122,28 +133,32 @@ class CollegeExchangeService {
     required int quantity,
     String notes = '',
   }) async {
-    final response = await http.post(
-      Uri.parse('$_baseUrl/college/food-requests'),
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ${await _token()}',
-      },
-      body: json.encode({
-        'listing_id': listingId,
-        'quantity': quantity,
-        'notes': notes,
-      }),
-    );
+    final response = await http
+        .post(
+          Uri.parse('$_baseUrl/college/food-requests'),
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ${await _token()}',
+          },
+          body: json.encode({
+            'listing_id': listingId,
+            'quantity': quantity,
+            'notes': notes,
+          }),
+        )
+        .timeout(_exchangeTimeout);
     if (response.statusCode != 200) {
       throw Exception('Failed to request food: ${response.body}');
     }
   }
 
   Future<Map<String, dynamic>> getExchangeRequests(String token) async {
-    final response = await http.get(
-      Uri.parse('$_baseUrl/admin/exchange-requests'),
-      headers: {'Authorization': 'Bearer $token'},
-    );
+    final response = await http
+        .get(
+          Uri.parse('$_baseUrl/admin/exchange-requests'),
+          headers: {'Authorization': 'Bearer $token'},
+        )
+        .timeout(_exchangeTimeout);
     if (response.statusCode != 200) {
       throw Exception('Failed to load exchange requests: ${response.body}');
     }
@@ -167,18 +182,20 @@ class CollegeExchangeService {
     String token, {
     String rejectionNote = '',
   }) async {
-    final response = await http.post(
-      Uri.parse('$_baseUrl/admin/exchange-status'),
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer $token',
-      },
-      body: json.encode({
-        'id': requestId,
-        'status': status,
-        if (rejectionNote.isNotEmpty) 'rejection_note': rejectionNote,
-      }),
-    );
+    final response = await http
+        .post(
+          Uri.parse('$_baseUrl/admin/exchange-status'),
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $token',
+          },
+          body: json.encode({
+            'id': requestId,
+            'status': status,
+            if (rejectionNote.isNotEmpty) 'rejection_note': rejectionNote,
+          }),
+        )
+        .timeout(_exchangeTimeout);
     if (response.statusCode != 200) {
       throw Exception('Failed to update status: ${response.body}');
     }

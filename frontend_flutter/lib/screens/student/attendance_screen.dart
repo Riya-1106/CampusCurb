@@ -526,8 +526,8 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
       itemCount: stats.length,
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: MediaQuery.of(context).size.width < 500 ? 1 : 2,
         crossAxisSpacing: 12,
         mainAxisSpacing: 12,
         mainAxisExtent: 126,

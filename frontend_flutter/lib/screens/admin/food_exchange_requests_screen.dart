@@ -19,8 +19,11 @@ class _FoodExchangeRequestsScreenState
 
   bool _isLoading = false;
   bool _isUpdating = false;
+  String? _errorMessage;
   List<Map<String, dynamic>> _signupRequests = [];
   List<Map<String, dynamic>> _pendingListings = [];
+  List<Map<String, dynamic>> _foodRequests = [];
+  Map<String, dynamic> _summary = {};
 
   @override
   void initState() {
@@ -31,6 +34,7 @@ class _FoodExchangeRequestsScreenState
   Future<void> _loadExchangeRequests() async {
     setState(() {
       _isLoading = true;
+      _errorMessage = null;
     });
 
     try {
@@ -45,10 +49,13 @@ class _FoodExchangeRequestsScreenState
       setState(() {
         _signupRequests = data['signup_requests'] ?? [];
         _pendingListings = data['pending_listings'] ?? [];
+        _foodRequests = data['food_requests'] ?? [];
+        _summary = Map<String, dynamic>.from(data['summary'] ?? {});
         _isLoading = false;
       });
     } catch (e) {
       setState(() {
+        _errorMessage = e.toString().replaceFirst('Exception: ', '');
         _isLoading = false;
       });
       if (mounted) {
@@ -163,6 +170,90 @@ class _FoodExchangeRequestsScreenState
     );
   }
 
+  Widget _buildSummaryHeader() {
+    Widget tile(String label, dynamic value, Color color, IconData icon) {
+      return Expanded(
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.10),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: color.withValues(alpha: 0.18)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(icon, color: color),
+              const SizedBox(height: 10),
+              Text(
+                '${value ?? 0}',
+                style: TextStyle(
+                  color: color,
+                  fontSize: 24,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(label, style: const TextStyle(color: Color(0xFF475569))),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF0F766E), Color(0xFF2563EB)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(26),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Inter-college food sharing',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 26,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Canteen waste becomes surplus listings. Admin approves, then partner colleges can request pickup.',
+            style: TextStyle(color: Colors.white70, height: 1.35),
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              tile(
+                'Pending surplus',
+                _summary['pending_surplus_listings'] ??
+                    _pendingListings
+                        .where((e) => e['status'] == 'pending')
+                        .length,
+                Colors.white,
+                Icons.inventory_2_outlined,
+              ),
+              const SizedBox(width: 10),
+              tile(
+                'Food requests',
+                _summary['pending_food_requests'] ??
+                    _foodRequests.where((e) => e['status'] == 'pending').length,
+                Colors.white,
+                Icons.swap_horiz_rounded,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildSignupRequests() {
     return Card(
       child: Padding(
@@ -176,7 +267,7 @@ class _FoodExchangeRequestsScreenState
             ),
             const SizedBox(height: 16),
             if (_signupRequests.isEmpty)
-              const Text('No pending signup requests')
+              const Text('No college signup requests right now.')
             else
               ListView.builder(
                 shrinkWrap: true,
@@ -201,12 +292,14 @@ class _FoodExchangeRequestsScreenState
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Pending Food Listings',
+              'Surplus Food Listings',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 16),
             if (_pendingListings.isEmpty)
-              const Text('No pending food listings')
+              const Text(
+                'No surplus listings yet. Wasted food from canteen logs will appear here.',
+              )
             else
               ListView.builder(
                 shrinkWrap: true,
@@ -215,6 +308,41 @@ class _FoodExchangeRequestsScreenState
                 itemBuilder: (context, index) {
                   final listing = _pendingListings[index];
                   return _buildRequestCard(listing, 'listing');
+                },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFoodRequests() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'College Food Requests',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Approve these when a receiving college should collect food from the source college/canteen.',
+              style: TextStyle(color: Colors.black54),
+            ),
+            const SizedBox(height: 16),
+            if (_foodRequests.isEmpty)
+              const Text('No inter-college food requests yet.')
+            else
+              ListView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: _foodRequests.length,
+                itemBuilder: (context, index) {
+                  final request = _foodRequests[index];
+                  return _buildRequestCard(request, 'food_request');
                 },
               ),
           ],
@@ -240,6 +368,12 @@ class _FoodExchangeRequestsScreenState
         break;
     }
 
+    final isSignup = type == 'signup';
+    final isListing = type == 'listing';
+    final title = isSignup
+        ? request['college_name'] ?? 'Unknown College'
+        : request['food_item'] ?? 'Unknown Item';
+
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       child: Padding(
@@ -251,9 +385,7 @@ class _FoodExchangeRequestsScreenState
               children: [
                 Expanded(
                   child: Text(
-                    type == 'signup'
-                        ? request['college_name'] ?? 'Unknown College'
-                        : request['food_item'] ?? 'Unknown Item',
+                    title.toString(),
                     style: const TextStyle(fontWeight: FontWeight.bold),
                   ),
                 ),
@@ -278,7 +410,7 @@ class _FoodExchangeRequestsScreenState
               ],
             ),
             const SizedBox(height: 8),
-            if (type == 'signup') ...[
+            if (isSignup) ...[
               _buildDetailRow('Contact', request['contact_name']),
               _buildDetailRow('Email', request['email']),
               _buildDetailRow('Phone', request['phone'] ?? 'Not provided'),
@@ -290,15 +422,30 @@ class _FoodExchangeRequestsScreenState
               if (request['notes'] != null &&
                   request['notes'].toString().isNotEmpty)
                 _buildDetailRow('Notes', request['notes']),
+            ] else if (isListing) ...[
+              _buildDetailRow(
+                'Source',
+                request['college_name'] ?? request['collegeName'] ?? 'Unknown',
+              ),
+              _buildDetailRow(
+                'Quantity',
+                '${request['remaining_quantity'] ?? request['quantity']} / ${request['quantity']} ${request['unit'] ?? 'units'}',
+              ),
+              if (request['source'] == 'canteen_waste')
+                _buildDetailRow('Created from', 'Canteen waste log'),
+              if (request['pickup_window'] != null &&
+                  request['pickup_window'].toString().isNotEmpty)
+                _buildDetailRow('Pickup', request['pickup_window']),
+              if (request['notes'] != null &&
+                  request['notes'].toString().isNotEmpty)
+                _buildDetailRow('Notes', request['notes']),
             ] else ...[
-              _buildDetailRow('College', request['collegeName'] ?? 'Unknown'),
+              _buildDetailRow('From', request['college_from'] ?? 'Unknown'),
+              _buildDetailRow('To', request['college_to'] ?? 'Unknown'),
               _buildDetailRow(
                 'Quantity',
                 '${request['quantity']} ${request['unit'] ?? 'units'}',
               ),
-              if (request['pickup_window'] != null &&
-                  request['pickup_window'].toString().isNotEmpty)
-                _buildDetailRow('Pickup', request['pickup_window']),
               if (request['notes'] != null &&
                   request['notes'].toString().isNotEmpty)
                 _buildDetailRow('Notes', request['notes']),
@@ -344,7 +491,7 @@ class _FoodExchangeRequestsScreenState
     );
   }
 
-  Widget _buildDetailRow(String label, String value) {
+  Widget _buildDetailRow(String label, dynamic value) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 4),
       child: Row(
@@ -357,7 +504,7 @@ class _FoodExchangeRequestsScreenState
               style: const TextStyle(fontWeight: FontWeight.w500),
             ),
           ),
-          Expanded(child: Text(value)),
+          Expanded(child: Text(value?.toString() ?? '')),
         ],
       ),
     );
@@ -378,9 +525,29 @@ class _FoodExchangeRequestsScreenState
                 padding: const EdgeInsets.all(16),
                 child: Column(
                   children: [
+                    _buildSummaryHeader(),
+                    if (_errorMessage != null) ...[
+                      const SizedBox(height: 16),
+                      Card(
+                        color: const Color(0xFFFFFBEB),
+                        child: ListTile(
+                          leading: const Icon(
+                            Icons.info_outline_rounded,
+                            color: Color(0xFFB45309),
+                          ),
+                          title: const Text(
+                            'Exchange data could not fully load',
+                          ),
+                          subtitle: Text(_errorMessage!),
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 16),
                     _buildSignupRequests(),
                     const SizedBox(height: 16),
                     _buildPendingListings(),
+                    const SizedBox(height: 16),
+                    _buildFoodRequests(),
                   ],
                 ),
               ),

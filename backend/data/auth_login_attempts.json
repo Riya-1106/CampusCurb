@@ -318,5 +318,95 @@
     "selected_role": "admin",
     "ip": "127.0.0.1",
     "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+  },
+  {
+    "timestamp": "2026-04-23T07:54:11.481175+00:00",
+    "email": "campuscurb30@gmail.com",
+    "method": "password",
+    "success": true,
+    "reason": "Login success",
+    "selected_role": "admin",
+    "ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+  },
+  {
+    "timestamp": "2026-04-23T08:31:11.928271+00:00",
+    "email": "dhruvdave0603@sfit.ac.in",
+    "method": "password",
+    "success": true,
+    "reason": "Login success",
+    "selected_role": "canteen",
+    "ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+  },
+  {
+    "timestamp": "2026-04-23T11:12:43.469597+00:00",
+    "email": "dhruvdave0603@sfit.ac.in",
+    "method": "password",
+    "success": true,
+    "reason": "Login success",
+    "selected_role": "canteen",
+    "ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+  },
+  {
+    "timestamp": "2026-04-23T11:57:26.116506+00:00",
+    "email": "campuscurb30@gmail.com",
+    "method": "password",
+    "success": false,
+    "reason": "invalid-credential",
+    "selected_role": "admin",
+    "ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+  },
+  {
+    "timestamp": "2026-04-23T11:57:26.119862+00:00",
+    "email": "campuscurb30@gmail.com",
+    "method": "password",
+    "success": false,
+    "reason": "Unknown login failure",
+    "selected_role": "admin",
+    "ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+  },
+  {
+    "timestamp": "2026-04-23T11:57:49.918207+00:00",
+    "email": "campuscurb30@gmail.com",
+    "method": "password",
+    "success": true,
+    "reason": "Login success",
+    "selected_role": "admin",
+    "ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+  },
+  {
+    "timestamp": "2026-04-23T12:19:22.673903+00:00",
+    "email": "campuscurb30@gmail.com",
+    "method": "password",
+    "success": true,
+    "reason": "Login success",
+    "selected_role": "admin",
+    "ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+  },
+  {
+    "timestamp": "2026-04-24T04:48:25.861113+00:00",
+    "email": "campuscurb30@gmail.com",
+    "method": "password",
+    "success": true,
+    "reason": "Login success",
+    "selected_role": "admin",
+    "ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Mobile Safari/537.36"
+  },
+  {
+    "timestamp": "2026-04-24T04:48:27.406020+00:00",
+    "email": "campuscurb30@gmail.com",
+    "method": "password",
+    "success": true,
+    "reason": "Login success",
+    "selected_role": "admin",
+    "ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Mobile Safari/537.36"
   }
 ]

@@ -304,7 +304,7 @@ class _WasteScreenState extends State<WasteScreen> {
                       child: GridView.count(
                         shrinkWrap: true,
                         physics: const NeverScrollableScrollPhysics(),
-                        crossAxisCount: isWide ? 4 : 2,
+                        crossAxisCount: width < 600 ? 1 : (isWide ? 4 : 2),
                         crossAxisSpacing: 12,
                         mainAxisSpacing: 12,
                         mainAxisExtent: 104,

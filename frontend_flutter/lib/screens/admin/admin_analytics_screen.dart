@@ -467,6 +467,164 @@ class _AdminAnalyticsScreenState extends State<AdminAnalyticsScreen> {
     );
   }
 
+  Widget comparisonTrendChart({
+    required String title,
+    required List<Map<String, dynamic>> data,
+    required String labelKey,
+    required String primaryKey,
+    required String secondaryKey,
+    required String primaryLabel,
+    required String secondaryLabel,
+    required Color primaryColor,
+    required Color secondaryColor,
+    String emptyText = 'No trend data available.',
+  }) {
+    if (data.isEmpty) {
+      return Text(emptyText, style: const TextStyle(color: Colors.black54));
+    }
+
+    final maxValue = data
+        .expand(
+          (item) => [
+            _toDouble(item[primaryKey]),
+            _toDouble(item[secondaryKey]),
+          ],
+        )
+        .fold<double>(0, math.max)
+        .clamp(1, double.infinity);
+
+    Widget metricRow(String label, double value, Color color) {
+      return Row(
+        children: [
+          SizedBox(
+            width: 72,
+            child: Text(
+              label,
+              style: TextStyle(
+                color: color,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          Expanded(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: LinearProgressIndicator(
+                minHeight: 10,
+                value: (value / maxValue).clamp(0.0, 1.0),
+                color: color,
+                backgroundColor: color.withValues(alpha: 0.15),
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          SizedBox(
+            width: 42,
+            child: Text(
+              value.toStringAsFixed(value % 1 == 0 ? 0 : 1),
+              textAlign: TextAlign.right,
+            ),
+          ),
+        ],
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
+        const SizedBox(height: 10),
+        ...data.map((item) {
+          final label = item[labelKey]?.toString() ?? 'N/A';
+          final primaryValue = _toDouble(item[primaryKey]);
+          final secondaryValue = _toDouble(item[secondaryKey]);
+          return Container(
+            margin: const EdgeInsets.only(bottom: 12),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF8FAFC),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF0F172A),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                metricRow(primaryLabel, primaryValue, primaryColor),
+                const SizedBox(height: 8),
+                metricRow(secondaryLabel, secondaryValue, secondaryColor),
+              ],
+            ),
+          );
+        }),
+      ],
+    );
+  }
+
+  Widget singleSeriesTrendChart({
+    required String title,
+    required List<Map<String, dynamic>> data,
+    required String labelKey,
+    required String valueKey,
+    required Color color,
+    String suffix = '',
+    String emptyText = 'No trend data available.',
+  }) {
+    final points = data.map((item) => _toDouble(item[valueKey])).toList();
+    if (points.isEmpty) {
+      return Text(emptyText, style: const TextStyle(color: Colors.black54));
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
+        const SizedBox(height: 10),
+        SizedBox(
+          height: 90,
+          width: double.infinity,
+          child: CustomPaint(
+            painter: _TrendLinePainter(
+              points: points,
+              color: color,
+            ),
+          ),
+        ),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: data.map((item) {
+            final label = item[labelKey]?.toString() ?? 'N/A';
+            final value = _toDouble(item[valueKey]);
+            return Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.10),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(color: color.withValues(alpha: 0.20)),
+              ),
+              child: Text(
+                '$label • ${value.toStringAsFixed(value % 1 == 0 ? 0 : 1)}$suffix',
+                style: TextStyle(
+                  color: color,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            );
+          }).toList(),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final analytics = studentData;
@@ -534,6 +692,24 @@ class _AdminAnalyticsScreenState extends State<AdminAnalyticsScreen> {
     final operatorActions = List<String>.from(
       (mlOverview?['operator_actions'] as List<dynamic>? ?? []).map(
         (e) => e.toString(),
+      ),
+    );
+    final trendData = Map<String, dynamic>.from(
+      mlOverview?['trends'] as Map<String, dynamic>? ?? {},
+    );
+    final predictedVsActualTrend = List<Map<String, dynamic>>.from(
+      (trendData['predicted_vs_actual'] as List<dynamic>? ?? []).map(
+        (e) => Map<String, dynamic>.from(e as Map),
+      ),
+    );
+    final wasteReductionTrend = List<Map<String, dynamic>>.from(
+      (trendData['waste_reduction'] as List<dynamic>? ?? []).map(
+        (e) => Map<String, dynamic>.from(e as Map),
+      ),
+    );
+    final confidenceTrend = List<Map<String, dynamic>>.from(
+      (trendData['confidence'] as List<dynamic>? ?? []).map(
+        (e) => Map<String, dynamic>.from(e as Map),
       ),
     );
     final recentTrainingRuns = List<Map<String, dynamic>>.from(
@@ -1016,6 +1192,53 @@ class _AdminAnalyticsScreenState extends State<AdminAnalyticsScreen> {
                               '${item['confidence_score'] ?? 0}%',
                             ),
                           ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  sectionCard(
+                    title: 'Operational Trend Charts',
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        comparisonTrendChart(
+                          title: 'Predicted vs Actual Sales',
+                          data: predictedVsActualTrend,
+                          labelKey: 'label',
+                          primaryKey: 'predicted_total',
+                          secondaryKey: 'actual_total',
+                          primaryLabel: 'Predicted',
+                          secondaryLabel: 'Actual',
+                          primaryColor: const Color(0xFF2E6FD8),
+                          secondaryColor: const Color(0xFF15803D),
+                          emptyText:
+                              'Predicted vs actual trend will appear after more resolved prediction logs are available.',
+                        ),
+                        const SizedBox(height: 18),
+                        comparisonTrendChart(
+                          title: 'Waste Reduction Over Time',
+                          data: wasteReductionTrend,
+                          labelKey: 'label',
+                          primaryKey: 'baseline_waste',
+                          secondaryKey: 'actual_waste',
+                          primaryLabel: 'Baseline',
+                          secondaryLabel: 'Actual',
+                          primaryColor: const Color(0xFFB5482A),
+                          secondaryColor: const Color(0xFF0F7A8B),
+                          emptyText:
+                              'Waste reduction trend will appear after canteen operations are matched with prediction logs.',
+                        ),
+                        const SizedBox(height: 18),
+                        singleSeriesTrendChart(
+                          title: 'Confidence Trend Over Time',
+                          data: confidenceTrend,
+                          labelKey: 'label',
+                          valueKey: 'average_confidence',
+                          color: const Color(0xFF7C3AED),
+                          suffix: '%',
+                          emptyText:
+                              'Confidence trend will appear after multiple forecast runs are logged.',
                         ),
                       ],
                     ),

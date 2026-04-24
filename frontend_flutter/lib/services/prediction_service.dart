@@ -46,9 +46,22 @@ class PredictionService {
   }
 
   /// Fetches the demand dashboard data from the backend.
-  Future<Map<String, dynamic>> getDemandDashboard() async {
+  Future<Map<String, dynamic>> getDemandDashboard({
+    String? targetDate,
+    String? timeSlot,
+  }) async {
+    final queryParameters = <String, String>{};
+    if (targetDate != null && targetDate.trim().isNotEmpty) {
+      queryParameters['target_date'] = targetDate;
+    }
+    if (timeSlot != null && timeSlot.trim().isNotEmpty) {
+      queryParameters['time_slot'] = timeSlot;
+    }
+    final uri = Uri.parse('$_baseUrl/demand-dashboard').replace(
+      queryParameters: queryParameters.isEmpty ? null : queryParameters,
+    );
     final response = await http
-        .get(Uri.parse('$_baseUrl/demand-dashboard'))
+        .get(uri)
         .timeout(_analyticsTimeout);
     if (response.statusCode != 200) {
       throw Exception('Failed to load demand dashboard');

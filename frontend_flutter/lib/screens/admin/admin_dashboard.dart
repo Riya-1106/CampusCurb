@@ -726,7 +726,7 @@ class _AdminDashboardState extends State<AdminDashboard> with TickerProviderStat
           padding: EdgeInsets.zero,
           itemCount: 6,
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: isWide ? 3 : 2,
+            crossAxisCount: MediaQuery.of(context).size.width < 600 ? 1 : (isWide ? 3 : 2),
             crossAxisSpacing: 16,
             mainAxisSpacing: 16,
             childAspectRatio: isWide ? 1.2 : 1.0,

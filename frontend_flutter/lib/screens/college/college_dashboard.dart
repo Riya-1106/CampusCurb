@@ -261,8 +261,16 @@ class _CollegeDashboardState extends State<CollegeDashboard> {
               style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
             ),
             const SizedBox(height: 6),
-            Text('College: ${listing['college_name'] ?? 'Unknown'}'),
+            Text('Source: ${listing['college_name'] ?? 'Unknown'}'),
             Text('Quantity: $remaining ${listing['unit'] ?? ''}'),
+            if (listing['source'] == 'canteen_waste')
+              const Text(
+                'Auto-listed from canteen waste log',
+                style: TextStyle(
+                  color: Color(0xFF0D6E6E),
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
             if ((listing['pickup_window'] ?? '').toString().isNotEmpty)
               Text('Pickup: ${listing['pickup_window']}'),
             const SizedBox(height: 8),
@@ -350,7 +358,7 @@ class _CollegeDashboardState extends State<CollegeDashboard> {
                   ),
                   const SizedBox(height: 6),
                   const Text(
-                    'Post leftover food for approval, then request approved surplus from other colleges.',
+                    'Post leftover food for approval, then request approved surplus from other colleges or canteen waste logs.',
                     style: TextStyle(color: Colors.black54),
                   ),
                   const SizedBox(height: 16),
@@ -390,8 +398,8 @@ class _CollegeDashboardState extends State<CollegeDashboard> {
                   ..._myListings.map((listing) => _buildListingCard(listing)),
                   const SizedBox(height: 20),
                   _sectionTitle(
-                    'Approved Listings From Other Colleges',
-                    'Only admin-approved surplus appears here for cross-college requests.',
+                    'Approved Surplus Available',
+                    'Only admin-approved college or canteen surplus appears here for pickup requests.',
                   ),
                   const SizedBox(height: 10),
                   if (_availableListings.isEmpty)

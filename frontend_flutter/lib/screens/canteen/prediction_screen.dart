@@ -11,13 +11,23 @@ class PredictionScreen extends StatefulWidget {
 
 class _PredictionScreenState extends State<PredictionScreen> {
   final PredictionService _service = PredictionService();
+  static const List<String> _timeSlots = [
+    '09:00-11:00',
+    '11:00-13:00',
+    '13:00-15:00',
+    '15:00+',
+  ];
 
   Map<String, dynamic>? _data;
   bool _loading = true;
+  String _forecastMode = 'today';
+  DateTime _customDate = DateTime.now();
+  late String _selectedTimeSlot;
 
   @override
   void initState() {
     super.initState();
+    _selectedTimeSlot = _slotForHour(DateTime.now().hour);
     _loadDashboard();
   }
 
@@ -33,13 +43,69 @@ class _PredictionScreenState extends State<PredictionScreen> {
     return double.tryParse(value?.toString() ?? '') ?? 0;
   }
 
+  String _slotForHour(int hour) {
+    if (hour < 11) return '09:00-11:00';
+    if (hour < 13) return '11:00-13:00';
+    if (hour < 15) return '13:00-15:00';
+    return '15:00+';
+  }
+
+  DateTime get _targetDate {
+    final now = DateTime.now();
+    if (_forecastMode == 'tomorrow') {
+      return now.add(const Duration(days: 1));
+    }
+    if (_forecastMode == 'custom') {
+      return _customDate;
+    }
+    return now;
+  }
+
+  String _formatDate(DateTime date) {
+    final month = date.month.toString().padLeft(2, '0');
+    final day = date.day.toString().padLeft(2, '0');
+    return '${date.year}-$month-$day';
+  }
+
+  String _readableDate(DateTime date) {
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    return '${date.day} ${months[date.month - 1]} ${date.year}';
+  }
+
+  String get _forecastModeLabel {
+    switch (_forecastMode) {
+      case 'tomorrow':
+        return 'Tomorrow';
+      case 'custom':
+        return 'Custom date';
+      default:
+        return 'Today';
+    }
+  }
+
   Future<void> _loadDashboard() async {
     setState(() {
       _loading = true;
     });
 
     try {
-      final result = await _service.getDemandDashboard();
+      final result = await _service.getDemandDashboard(
+        targetDate: _formatDate(_targetDate),
+        timeSlot: _selectedTimeSlot,
+      );
       if (!mounted) return;
       setState(() {
         _data = result;
@@ -51,6 +117,162 @@ class _PredictionScreenState extends State<PredictionScreen> {
         _loading = false;
       });
     }
+  }
+
+  Future<void> _setForecastMode(String mode) async {
+    setState(() {
+      _forecastMode = mode;
+      if (mode == 'custom') {
+        _customDate = _targetDate;
+      }
+    });
+    await _loadDashboard();
+  }
+
+  Future<void> _pickCustomDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _forecastMode == 'custom' ? _customDate : DateTime.now(),
+      firstDate: DateTime.now().subtract(const Duration(days: 7)),
+      lastDate: DateTime.now().add(const Duration(days: 30)),
+    );
+    if (picked == null || !mounted) return;
+    setState(() {
+      _forecastMode = 'custom';
+      _customDate = picked;
+    });
+    await _loadDashboard();
+  }
+
+  Widget _selectorChip({
+    required String label,
+    required bool selected,
+    required VoidCallback onTap,
+    IconData? icon,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(999),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: selected ? const Color(0xFF0F766E) : Colors.white,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(
+            color: selected ? const Color(0xFF0F766E) : const Color(0xFFE2E8F0),
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (icon != null) ...[
+              Icon(
+                icon,
+                size: 18,
+                color: selected ? Colors.white : const Color(0xFF0F766E),
+              ),
+              const SizedBox(width: 8),
+            ],
+            Text(
+              label,
+              style: TextStyle(
+                color: selected ? Colors.white : const Color(0xFF0F172A),
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildForecastSelector() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Forecast For',
+            style: TextStyle(
+              color: Color(0xFF0F172A),
+              fontWeight: FontWeight.w800,
+              fontSize: 16,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Showing $_forecastModeLabel forecast for ${_readableDate(_targetDate)} during $_selectedTimeSlot.',
+            style: const TextStyle(
+              color: Color(0xFF64748B),
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              _selectorChip(
+                label: 'Today',
+                selected: _forecastMode == 'today',
+                icon: Icons.today_rounded,
+                onTap: () {
+                  _setForecastMode('today');
+                },
+              ),
+              _selectorChip(
+                label: 'Tomorrow',
+                selected: _forecastMode == 'tomorrow',
+                icon: Icons.event_available_rounded,
+                onTap: () {
+                  _setForecastMode('tomorrow');
+                },
+              ),
+              _selectorChip(
+                label: 'Custom: ${_readableDate(_targetDate)}',
+                selected: _forecastMode == 'custom',
+                icon: Icons.calendar_month_rounded,
+                onTap: () {
+                  _pickCustomDate();
+                },
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          DropdownButtonFormField<String>(
+            initialValue: _selectedTimeSlot,
+            decoration: InputDecoration(
+              labelText: 'Time slot',
+              prefixIcon: const Icon(Icons.schedule_rounded),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+            ),
+            items: _timeSlots
+                .map(
+                  (slot) => DropdownMenuItem<String>(
+                    value: slot,
+                    child: Text(slot),
+                  ),
+                )
+                .toList(),
+            onChanged: (value) async {
+              if (value == null) return;
+              setState(() {
+                _selectedTimeSlot = value;
+              });
+              await _loadDashboard();
+            },
+          ),
+        ],
+      ),
+    );
   }
 
   Color _confidenceColor(String label) {
@@ -377,7 +599,7 @@ class _PredictionScreenState extends State<PredictionScreen> {
                               borderRadius: BorderRadius.circular(999),
                             ),
                             child: Text(
-                              '${model['name'] ?? 'Model'} • ${summary['time_slot'] ?? 'Current slot'}',
+                              '${model['name'] ?? 'Model'} • ${summary['target_date'] ?? _formatDate(_targetDate)} • ${summary['time_slot'] ?? _selectedTimeSlot}',
                               style: const TextStyle(
                                 color: Colors.white,
                                 fontWeight: FontWeight.w700,
@@ -416,6 +638,8 @@ class _PredictionScreenState extends State<PredictionScreen> {
                         ],
                       ),
                     ),
+                    const SizedBox(height: 18),
+                    _buildForecastSelector(),
                     const SizedBox(height: 18),
                     if (activeMenuNames.isNotEmpty)
                       Container(
@@ -496,7 +720,7 @@ class _PredictionScreenState extends State<PredictionScreen> {
                     GridView.count(
                       shrinkWrap: true,
                       physics: const NeverScrollableScrollPhysics(),
-                      crossAxisCount: MediaQuery.of(context).size.width > 900 ? 4 : 2,
+                      crossAxisCount: width < 600 ? 1 : (width > 900 ? 4 : 2),
                       crossAxisSpacing: 12,
                       mainAxisSpacing: 12,
                       childAspectRatio: 1.25,

@@ -36,6 +36,12 @@ def _safe_read_local_orders() -> pd.DataFrame:
         return pd.DataFrame()
 
     df = pd.DataFrame(rows)
+    return _normalize_order_frame(df)
+
+
+def _normalize_order_frame(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return df
     if "item" in df.columns and "food_item" not in df.columns:
         df["food_item"] = df["item"]
     if "uid" in df.columns and "student_id" not in df.columns:
@@ -44,16 +50,22 @@ def _safe_read_local_orders() -> pd.DataFrame:
         parsed = pd.to_datetime(df["time"], errors="coerce")
         hours = parsed.dt.hour
         df["time_slot"] = hours.apply(_hour_to_slot)
+    if "timestamp" in df.columns and "time_slot" not in df.columns:
+        parsed = pd.to_datetime(df["timestamp"], errors="coerce")
+        hours = parsed.dt.hour
+        df["time_slot"] = hours.apply(_hour_to_slot)
     return df
 
 
-def _safe_read_firestore(collection_name: str) -> pd.DataFrame:
+def _safe_read_firestore(collection_name: str, timeout_seconds: float = 1.5) -> pd.DataFrame:
     try:
-        docs = db.collection(collection_name).stream()
+        docs = db.collection(collection_name).stream(timeout=timeout_seconds)
         rows = [doc.to_dict() for doc in docs]
     except Exception:
         return pd.DataFrame()
-    return pd.DataFrame(rows) if rows else pd.DataFrame()
+    if not rows:
+        return pd.DataFrame()
+    return _normalize_order_frame(pd.DataFrame(rows))
 
 
 def _hour_to_slot(hour):
@@ -126,9 +138,9 @@ def _build_veg_ratio(order_df: pd.DataFrame, dataset_df: pd.DataFrame) -> dict:
 def student_behavior(top_n: int = 5):
     """Return student ordering analytics using existing order and dataset data."""
 
-    order_df = _safe_read_firestore("orders")
+    order_df = _safe_read_local_orders()
     if order_df.empty:
-        order_df = _safe_read_local_orders()
+        order_df = _safe_read_firestore("orders")
 
     dataset_df = _safe_read_dataset()
     base_food_df = order_df if _has_series(order_df, "food_item") else dataset_df

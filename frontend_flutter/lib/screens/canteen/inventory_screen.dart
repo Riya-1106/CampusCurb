@@ -98,6 +98,19 @@ class _InventoryScreenState extends State<InventoryScreen> {
   String _itemKey(Map<String, dynamic> item) =>
       item['food_item']?.toString().trim().toLowerCase() ?? '';
 
+  void _updateAutoWaste(String key) {
+    final prepared = int.tryParse(_preparedControllers[key]?.text.trim() ?? '');
+    final sold = int.tryParse(_soldControllers[key]?.text.trim() ?? '');
+    final wastedController = _wastedControllers[key];
+    if (wastedController == null) return;
+
+    final nextWaste = prepared == null || sold == null
+        ? ''
+        : (prepared - sold).clamp(0, 999999).toString();
+    if (wastedController.text == nextWaste) return;
+    wastedController.text = nextWaste;
+  }
+
   void _setControllersFromItems(List<Map<String, dynamic>> items) {
     _disposeControllers();
     for (final item in items) {
@@ -120,6 +133,9 @@ class _InventoryScreenState extends State<InventoryScreen> {
       _notesControllers[key] = TextEditingController(
         text: item['notes']?.toString() ?? '',
       );
+      _preparedControllers[key]!.addListener(() => _updateAutoWaste(key));
+      _soldControllers[key]!.addListener(() => _updateAutoWaste(key));
+      _updateAutoWaste(key);
     }
   }
 
@@ -285,16 +301,22 @@ class _InventoryScreenState extends State<InventoryScreen> {
   Widget _numberField({
     required String label,
     required TextEditingController controller,
+    bool readOnly = false,
+    String? helperText,
   }) {
     return SizedBox(
       width: 130,
       child: TextField(
         controller: controller,
+        readOnly: readOnly,
         keyboardType: TextInputType.number,
         decoration: InputDecoration(
           labelText: label,
+          helperText: helperText,
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
           isDense: true,
+          filled: readOnly,
+          fillColor: readOnly ? const Color(0xFFF8FAFC) : null,
         ),
       ),
     );
@@ -390,6 +412,8 @@ class _InventoryScreenState extends State<InventoryScreen> {
               _numberField(
                 label: 'Wasted',
                 controller: _wastedControllers[key]!,
+                readOnly: true,
+                helperText: 'Auto',
               ),
             ],
           ),

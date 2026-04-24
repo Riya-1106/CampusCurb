@@ -177,7 +177,7 @@ class FacultyDashboard extends StatelessWidget {
                 child: GridView.count(
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
-                  crossAxisCount: 2,
+                  crossAxisCount: MediaQuery.of(context).size.width < 600 ? 1 : 2,
                   crossAxisSpacing: 15,
                   mainAxisSpacing: 15,
                   children: [

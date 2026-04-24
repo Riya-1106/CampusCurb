@@ -766,7 +766,7 @@ class _StudentDashboardState extends State<StudentDashboard>
             physics: const NeverScrollableScrollPhysics(),
             itemCount: metrics.length,
             gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: isWide ? 4 : 2,
+              crossAxisCount: width < 600 ? 1 : (isWide ? 4 : 2),
               crossAxisSpacing: 12,
               mainAxisSpacing: 12,
               mainAxisExtent: isWide
@@ -888,8 +888,8 @@ class _StudentDashboardState extends State<StudentDashboard>
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             itemCount: actions.length,
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2,
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: width < 600 ? 1 : 2,
               crossAxisSpacing: 12,
               mainAxisSpacing: 12,
               childAspectRatio: 1.12,

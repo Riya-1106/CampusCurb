@@ -494,10 +494,10 @@ class CanteenDashboard extends StatelessWidget {
               GridView.count(
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
-                crossAxisCount: 2,
+                crossAxisCount: width < 600 ? 1 : 2,
                 crossAxisSpacing: 12,
                 mainAxisSpacing: 12,
-                mainAxisExtent: 126,
+                mainAxisExtent: 140,
                 children: [
                   _actionCard(
                     context,

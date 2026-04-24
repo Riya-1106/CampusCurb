@@ -24,6 +24,7 @@ from firebase_connect import db
 from log_prediction import apply_operation_actuals
 from ml_pipeline import (
     build_demand_dashboard,
+    build_waste_reduction_trend,
     get_forecast_menu_items,
     get_training_status,
     run_training_cycle,
@@ -720,6 +721,10 @@ def waste_report():
         "Estimated ML Waste Reduction": int(round(report.get("estimated_reduction", 0))),
         "Resolved ML Predictions": int(report.get("prediction_count_used", 0)),
         "Waste Baseline": int(report.get("baseline_waste", report.get("total_food_wasted", 0))),
+        "Waste After ML": int(report.get("estimated_waste_after_ml", report.get("total_food_wasted", 0))),
+        "Sell Through Percentage": f"{int(round(report.get('sell_through_percentage', 0)))}%",
+        "Item Waste Breakdown": report.get("item_waste_breakdown", []),
+        "Waste Reduction Trend": build_waste_reduction_trend(),
         "Note": report.get("note", ""),
     }
 
@@ -746,8 +751,14 @@ def waste_analytics():
 
 
 @app.get("/demand-dashboard")
-def demand_dashboard():
-    return demand_dashboard_data()
+def demand_dashboard(
+    target_date: Optional[str] = None,
+    time_slot: Optional[str] = None,
+):
+    return demand_dashboard_data(
+        target_date=target_date,
+        time_slot=time_slot,
+    )
 
 
 @app.get("/ml/overview")
@@ -771,6 +782,9 @@ DATA_DIR = Path("./data")
 DATA_DIR.mkdir(exist_ok=True)
 MENU_FILE = DATA_DIR / "admin_menu_pending.json"
 EXCHANGE_FILE = DATA_DIR / "admin_exchange_requests.json"
+COLLEGE_LISTINGS_FILE = DATA_DIR / "college_food_listings.json"
+COLLEGE_REQUESTS_FILE = DATA_DIR / "college_food_requests.json"
+COLLEGE_SIGNUP_FILE = DATA_DIR / "college_signup_requests.json"
 
 
 MENU_MASTER = DATA_DIR / "menu.json"
@@ -816,6 +830,9 @@ DEFAULT_EXCHANGE_REQUESTS = [
         "createdAt": "2026-03-14T09:10:00Z"
     }
 ]
+DEFAULT_COLLEGE_LISTINGS = []
+DEFAULT_COLLEGE_REQUESTS = []
+DEFAULT_COLLEGE_SIGNUPS = []
 
 
 DEFAULT_MENU = [
@@ -922,6 +939,21 @@ def _operations_view_rows(
     uid: str = "",
     restrict_to_user: bool = False,
 ) -> List[Dict[str, Any]]:
+    try:
+        target_dt = datetime.fromisoformat(date_key)
+        forecast_rows = build_demand_dashboard(
+            target_datetime=target_dt,
+            time_slot=time_slot,
+            log_request=False,
+        ).get("dashboard", [])
+        forecast_by_food = {
+            _normalized_food_key(row.get("food_item")): row
+            for row in forecast_rows
+            if isinstance(row, dict)
+        }
+    except Exception:
+        forecast_by_food = {}
+
     if restrict_to_user:
         scoped_rows = _operations_for_scope(
             date_key=date_key,
@@ -947,38 +979,42 @@ def _operations_view_rows(
         food_item = str(menu_item.get("name", "")).strip()
         if not food_item:
             continue
+        forecast = forecast_by_food.get(_normalized_food_key(food_item), {})
         existing = rows_by_food.pop(_normalized_food_key(food_item), None)
         if existing is not None:
+            confidence_score = float(existing.get("confidence_score", 0) or 0)
             merged_items.append(
                 {
                     "food_item": existing.get("food_item", food_item),
                     "food_category": existing.get(
                         "food_category", menu_item.get("category", "general")
                     ),
-                    "predicted_demand": _safe_int(existing.get("predicted_demand")),
-                    "suggested_preparation": _safe_int(existing.get("suggested_preparation")),
-                    "expected_waste": _safe_int(existing.get("quantity_wasted")),
-                    "recent_average_sales": _safe_int(existing.get("recent_average_sales")),
-                    "historical_average_sales": _safe_int(existing.get("historical_average_sales")),
-                    "historical_preparation_average": _safe_int(
-                        existing.get("historical_preparation_average")
-                    ),
-                    "historical_waste_average": _safe_int(existing.get("historical_waste_average")),
-                    "confidence_score": existing.get("confidence_score", 0),
-                    "confidence_label": existing.get("confidence_label", "Low"),
-                    "trend_direction": existing.get("trend_direction", "stable"),
+                    "predicted_demand": _safe_int(existing.get("predicted_demand")) or _safe_int(forecast.get("predicted_demand")),
+                    "suggested_preparation": _safe_int(existing.get("suggested_preparation")) or _safe_int(forecast.get("suggested_preparation")),
+                    "expected_waste": _safe_int(existing.get("quantity_wasted")) or _safe_int(forecast.get("expected_waste")),
+                    "recent_average_sales": _safe_int(existing.get("recent_average_sales")) or _safe_int(forecast.get("recent_average_sales")),
+                    "historical_average_sales": _safe_int(existing.get("historical_average_sales")) or _safe_int(forecast.get("historical_average_sales")),
+                    "historical_preparation_average": _safe_int(existing.get("historical_preparation_average")) or _safe_int(forecast.get("historical_preparation_average")),
+                    "historical_waste_average": _safe_int(existing.get("historical_waste_average")) or _safe_int(forecast.get("historical_waste_average")),
+                    "confidence_score": confidence_score or forecast.get("confidence_score", 0),
+                    "confidence_label": existing.get("confidence_label") if confidence_score else forecast.get("confidence_label", "Low"),
+                    "trend_direction": existing.get("trend_direction") or forecast.get("trend_direction", "stable"),
                     "trend_reason": existing.get(
+                        "trend_reason"
+                    ) or forecast.get(
                         "trend_reason", "Saved canteen record for this slot."
                     ),
                     "recommended_action": existing.get(
+                        "recommended_action"
+                    ) or forecast.get(
                         "recommended_action", "Review manually."
                     ),
                     "time_slot": existing.get("time_slot", time_slot),
                     "target_date": existing.get("date", date_key),
-                    "weather_type": existing.get("weather_type", "Sunny"),
-                    "temperature": _safe_int(existing.get("temperature"), 29),
-                    "model_name": existing.get("model_name", "Saved Record"),
-                    "feature_snapshot": existing.get("feature_snapshot", {}),
+                    "weather_type": existing.get("weather_type") or forecast.get("weather_type", "Sunny"),
+                    "temperature": _safe_int(existing.get("temperature"), _safe_int(forecast.get("temperature"), 29)),
+                    "model_name": existing.get("model_name") or forecast.get("model_name", "Saved Record"),
+                    "feature_snapshot": existing.get("feature_snapshot") or forecast.get("feature_snapshot", {}),
                     "quantity_prepared": _safe_int(existing.get("quantity_prepared")),
                     "quantity_sold": _safe_int(existing.get("quantity_sold")),
                     "quantity_wasted": _safe_int(existing.get("quantity_wasted")),
@@ -992,24 +1028,24 @@ def _operations_view_rows(
             {
                 "food_item": food_item,
                 "food_category": str(menu_item.get("category", "general")).strip().lower() or "general",
-                "predicted_demand": 0,
-                "suggested_preparation": 0,
-                "expected_waste": 0,
-                "recent_average_sales": 0,
-                "historical_average_sales": 0,
-                "historical_preparation_average": 0,
-                "historical_waste_average": 0,
-                "confidence_score": 0,
-                "confidence_label": "Low",
-                "trend_direction": "stable",
-                "trend_reason": "No saved operations yet.",
-                "recommended_action": "Enter today's operations.",
+                "predicted_demand": _safe_int(forecast.get("predicted_demand")),
+                "suggested_preparation": _safe_int(forecast.get("suggested_preparation")),
+                "expected_waste": _safe_int(forecast.get("expected_waste")),
+                "recent_average_sales": _safe_int(forecast.get("recent_average_sales")),
+                "historical_average_sales": _safe_int(forecast.get("historical_average_sales")),
+                "historical_preparation_average": _safe_int(forecast.get("historical_preparation_average")),
+                "historical_waste_average": _safe_int(forecast.get("historical_waste_average")),
+                "confidence_score": forecast.get("confidence_score", 0),
+                "confidence_label": forecast.get("confidence_label", "Low"),
+                "trend_direction": forecast.get("trend_direction", "stable"),
+                "trend_reason": forecast.get("trend_reason", "No saved operations yet."),
+                "recommended_action": forecast.get("recommended_action", "Enter today's operations."),
                 "time_slot": time_slot,
                 "target_date": date_key,
-                "weather_type": "Sunny",
-                "temperature": 29,
-                "model_name": "Saved Record",
-                "feature_snapshot": {},
+                "weather_type": forecast.get("weather_type", "Sunny"),
+                "temperature": _safe_int(forecast.get("temperature"), 29),
+                "model_name": forecast.get("model_name", "Saved Record"),
+                "feature_snapshot": forecast.get("feature_snapshot", {}),
                 "quantity_prepared": 0,
                 "quantity_sold": 0,
                 "quantity_wasted": 0,
@@ -1322,6 +1358,173 @@ def _serialize_docs(docs) -> List[Dict]:
     return rows
 
 
+def _firestore_docs(collection_name: str, *, status: Optional[str] = None) -> List[Dict]:
+    try:
+        query = db.collection(collection_name)
+        if status is not None:
+            query = query.where("status", "==", status)
+        docs = query.order_by("createdAt", direction="DESCENDING").stream(
+            timeout=_FIRESTORE_READ_TIMEOUT
+        )
+        return _serialize_docs(docs)
+    except Exception as exc:
+        print(f"Warning: using local exchange fallback for {collection_name}: {exc}")
+        return []
+
+
+def _exchange_slug(value: Any) -> str:
+    cleaned = re.sub(r"[^a-z0-9]+", "-", str(value or "").lower()).strip("-")
+    return cleaned or "item"
+
+
+def _unique_by_id(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    merged: Dict[str, Dict[str, Any]] = {}
+    for row in rows:
+        row_id = str(row.get("id", "")).strip()
+        if not row_id:
+            continue
+        merged[row_id] = row
+    return sorted(
+        merged.values(),
+        key=lambda item: str(item.get("createdAt") or item.get("updated_at") or ""),
+        reverse=True,
+    )
+
+
+def _local_signup_requests() -> List[Dict[str, Any]]:
+    rows = load_data(COLLEGE_SIGNUP_FILE, DEFAULT_COLLEGE_SIGNUPS)
+    return rows if isinstance(rows, list) else []
+
+
+def _save_local_signup_requests(rows: List[Dict[str, Any]]) -> None:
+    save_data(COLLEGE_SIGNUP_FILE, rows)
+
+
+def _base_local_listings() -> List[Dict[str, Any]]:
+    rows = load_data(COLLEGE_LISTINGS_FILE, DEFAULT_COLLEGE_LISTINGS)
+    return rows if isinstance(rows, list) else []
+
+
+def _save_base_local_listings(rows: List[Dict[str, Any]]) -> None:
+    save_data(COLLEGE_LISTINGS_FILE, rows)
+
+
+def _local_food_requests() -> List[Dict[str, Any]]:
+    rows = load_data(COLLEGE_REQUESTS_FILE, DEFAULT_COLLEGE_REQUESTS)
+    return rows if isinstance(rows, list) else []
+
+
+def _save_local_food_requests(rows: List[Dict[str, Any]]) -> None:
+    save_data(COLLEGE_REQUESTS_FILE, rows)
+
+
+def _generated_waste_listings() -> List[Dict[str, Any]]:
+    operations = load_data(OPERATIONS_FILE, DEFAULT_OPERATIONS)
+    if not isinstance(operations, list):
+        return []
+
+    generated: List[Dict[str, Any]] = []
+    for row in operations:
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("recorded_by", "")) == "demo-seed":
+            continue
+        wasted = _safe_int(row.get("quantity_wasted"))
+        if wasted <= 0:
+            continue
+        food_item = str(row.get("food_item") or "Surplus food").strip()
+        date = str(row.get("date") or datetime.now(timezone.utc).date().isoformat())
+        time_slot = str(row.get("time_slot") or "today")
+        operation_id = str(row.get("id") or f"{date}|{time_slot}|{food_item}")
+        listing_id = f"waste|{_exchange_slug(operation_id)}"
+        generated.append(
+            {
+                "id": listing_id,
+                "source": "canteen_waste",
+                "source_operation_id": operation_id,
+                "created_by": str(row.get("recorded_by") or "canteen"),
+                "college_key": str(row.get("college_key") or "campus-canteen"),
+                "college_name": "Campus Curb Canteen",
+                "contact_email": "",
+                "food_item": food_item,
+                "quantity": wasted,
+                "remaining_quantity": wasted,
+                "unit": "portions",
+                "pickup_window": f"{date} • {time_slot}",
+                "notes": "Auto-created from canteen waste log for inter-college sharing.",
+                "status": "pending",
+                "createdAt": str(row.get("updated_at") or datetime.now(timezone.utc).isoformat()),
+            }
+        )
+    return generated
+
+
+def _local_exchange_listings(include_generated: bool = True) -> List[Dict[str, Any]]:
+    stored = _base_local_listings()
+    if not include_generated:
+        return stored
+    stored_ids = {str(row.get("id")) for row in stored if isinstance(row, dict)}
+    generated = [
+        row for row in _generated_waste_listings() if str(row.get("id")) not in stored_ids
+    ]
+    return _unique_by_id([*generated, *stored])
+
+
+def _save_or_update_local_listing(listing: Dict[str, Any]) -> None:
+    rows = _base_local_listings()
+    listing_id = str(listing.get("id", "")).strip()
+    next_rows = [row for row in rows if str(row.get("id")) != listing_id]
+    next_rows.append(listing)
+    _save_base_local_listings(next_rows)
+
+
+def _find_local_listing(listing_id: str) -> Optional[Dict[str, Any]]:
+    for row in _local_exchange_listings():
+        if str(row.get("id")) == listing_id:
+            return row
+    return None
+
+
+def _update_local_listing_status(listing_id: str, status: str, admin_uid: str) -> Optional[Dict[str, Any]]:
+    listing = _find_local_listing(listing_id)
+    if listing is None:
+        return None
+    listing = dict(listing)
+    listing["status"] = status
+    listing["reviewedAt"] = datetime.now(timezone.utc).isoformat()
+    listing["reviewedBy"] = admin_uid
+    if status == "approved":
+        listing["approvedAt"] = datetime.now(timezone.utc).isoformat()
+    _save_or_update_local_listing(listing)
+    return listing
+
+
+def _save_or_update_local_food_request(request: Dict[str, Any]) -> None:
+    rows = _local_food_requests()
+    request_id = str(request.get("id", "")).strip()
+    next_rows = [row for row in rows if str(row.get("id")) != request_id]
+    next_rows.append(request)
+    _save_local_food_requests(next_rows)
+
+
+def _find_local_food_request(request_id: str) -> Optional[Dict[str, Any]]:
+    for row in _local_food_requests():
+        if str(row.get("id")) == request_id:
+            return row
+    return None
+
+
+def _public_exchange_summary() -> Dict[str, int]:
+    listings = _local_exchange_listings()
+    requests = _local_food_requests()
+    return {
+        "pending_surplus_listings": sum(1 for item in listings if item.get("status") == "pending"),
+        "approved_surplus_listings": sum(1 for item in listings if item.get("status") == "approved"),
+        "pending_food_requests": sum(1 for item in requests if item.get("status") == "pending"),
+        "completed_food_requests": sum(1 for item in requests if item.get("status") == "approved"),
+    }
+
+
 
 
 @app.post("/college/signup-request")
@@ -1350,19 +1553,32 @@ def create_college_signup_request(payload: CollegeSignupRequestInput):
     college_key = _build_college_key(payload.college_name, email, requested_domains)
 
 
-    existing = list(
-        db.collection("college_signup_requests")
-        .where("email", "==", email)
-        .where("status", "==", "pending")
-        .limit(1)
-        .stream()
-    )
-    if existing:
+    existing_local = [
+        row
+        for row in _local_signup_requests()
+        if str(row.get("email", "")).lower() == email and row.get("status") == "pending"
+    ]
+    if existing_local:
         raise HTTPException(status_code=400, detail="A signup request is already pending for this email")
 
+    try:
+        existing = list(
+            db.collection("college_signup_requests")
+            .where("email", "==", email)
+            .where("status", "==", "pending")
+            .limit(1)
+            .stream(timeout=_FIRESTORE_READ_TIMEOUT)
+        )
+        if existing:
+            raise HTTPException(status_code=400, detail="A signup request is already pending for this email")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        print(f"Warning: signup duplicate Firestore check skipped: {exc}")
 
-    doc_ref = db.collection("college_signup_requests").document()
-    doc_ref.set({
+    local_id = f"signup|{_exchange_slug(email)}|{int(datetime.now(timezone.utc).timestamp())}"
+    signup_payload = {
+        "id": local_id,
         "college_name": payload.college_name.strip(),
         "contact_name": payload.contact_name.strip(),
         "email": email,
@@ -1373,8 +1589,20 @@ def create_college_signup_request(payload: CollegeSignupRequestInput):
         "notes": payload.notes.strip(),
         "status": "pending",
         "createdAt": datetime.now(timezone.utc).isoformat(),
-    }, merge=True)
-    return {"message": "College signup request submitted", "id": doc_ref.id}
+    }
+    doc_id = local_id
+    try:
+        doc_ref = db.collection("college_signup_requests").document()
+        doc_ref.set({k: v for k, v in signup_payload.items() if k != "id"}, merge=True)
+        doc_id = doc_ref.id
+        signup_payload["id"] = doc_id
+    except Exception as exc:
+        print(f"Warning: college signup saved locally only: {exc}")
+
+    rows = [row for row in _local_signup_requests() if str(row.get("id")) != doc_id]
+    rows.append(signup_payload)
+    _save_local_signup_requests(rows)
+    return {"message": "College signup request submitted", "id": doc_id}
 
 
 
@@ -1382,16 +1610,29 @@ def create_college_signup_request(payload: CollegeSignupRequestInput):
 @app.get("/admin/exchange-requests")
 def admin_exchange_requests(authorization: Optional[str] = Header(default=None)):
     _require_admin_uid(authorization)
+    signup_requests = _unique_by_id(
+        [
+            *_firestore_docs("college_signup_requests"),
+            *_local_signup_requests(),
+        ]
+    )
+    listings = _unique_by_id(
+        [
+            *_firestore_docs("college_food_listings"),
+            *_local_exchange_listings(),
+        ]
+    )
+    food_requests = _unique_by_id(
+        [
+            *_firestore_docs("college_food_requests"),
+            *_local_food_requests(),
+        ]
+    )
     return {
-        "signup_requests": _serialize_docs(
-            db.collection("college_signup_requests").order_by("createdAt", direction="DESCENDING").stream()
-        ),
-        "pending_listings": _serialize_docs(
-            db.collection("college_food_listings").order_by("createdAt", direction="DESCENDING").stream()
-        ),
-        "food_requests": _serialize_docs(
-            db.collection("college_food_requests").order_by("createdAt", direction="DESCENDING").stream()
-        ),
+        "signup_requests": signup_requests,
+        "pending_listings": listings,
+        "food_requests": food_requests,
+        "summary": _public_exchange_summary(),
     }
 
 
@@ -1409,8 +1650,11 @@ def admin_exchange_status(
 
 
     signup_ref = db.collection("college_signup_requests").document(payload.id)
-    signup_doc = signup_ref.get()
-    if signup_doc.exists:
+    try:
+        signup_doc = signup_ref.get(timeout=_FIRESTORE_READ_TIMEOUT)
+    except Exception:
+        signup_doc = None
+    if signup_doc is not None and signup_doc.exists:
         signup_data = signup_doc.to_dict() or {}
         email = str(signup_data.get("email", "")).strip().lower()
 
@@ -1534,10 +1778,22 @@ def admin_exchange_status(
             response["rejection_email_sent"] = True
         return response
 
+    local_signups = _local_signup_requests()
+    local_signup = next((row for row in local_signups if str(row.get("id")) == payload.id), None)
+    if local_signup is not None:
+        local_signup["status"] = payload.status
+        local_signup["reviewedAt"] = datetime.now(timezone.utc).isoformat()
+        local_signup["reviewedBy"] = admin_uid
+        local_signup["rejectionNote"] = payload.rejection_note or ""
+        _save_local_signup_requests(local_signups)
+        return {"message": "Signup request updated", "id": payload.id, "status": payload.status}
 
     listing_ref = db.collection("college_food_listings").document(payload.id)
-    listing_doc = listing_ref.get()
-    if listing_doc.exists:
+    try:
+        listing_doc = listing_ref.get(timeout=_FIRESTORE_READ_TIMEOUT)
+    except Exception:
+        listing_doc = None
+    if listing_doc is not None and listing_doc.exists:
         update = {
             "status": payload.status,
             "reviewedAt": datetime.now(timezone.utc).isoformat(),
@@ -1548,14 +1804,20 @@ def admin_exchange_status(
         listing_ref.set(update, merge=True)
         return {"message": "Listing status updated", "id": payload.id, "status": payload.status}
 
+    local_listing = _update_local_listing_status(payload.id, payload.status, admin_uid)
+    if local_listing is not None:
+        return {"message": "Listing status updated", "id": payload.id, "status": payload.status}
 
     request_ref = db.collection("college_food_requests").document(payload.id)
-    request_doc = request_ref.get()
-    if request_doc.exists:
+    try:
+        request_doc = request_ref.get(timeout=_FIRESTORE_READ_TIMEOUT)
+    except Exception:
+        request_doc = None
+    if request_doc is not None and request_doc.exists:
         request_data = request_doc.to_dict() or {}
         listing_id = str(request_data.get("listing_id", ""))
         listing_ref = db.collection("college_food_listings").document(listing_id)
-        listing_doc = listing_ref.get()
+        listing_doc = listing_ref.get(timeout=_FIRESTORE_READ_TIMEOUT)
         if not listing_doc.exists:
             raise HTTPException(status_code=404, detail="Listing for request not found")
 
@@ -1583,6 +1845,31 @@ def admin_exchange_status(
         }, merge=True)
         return {"message": "Food request updated", "id": payload.id, "status": payload.status}
 
+    local_request = _find_local_food_request(payload.id)
+    if local_request is not None:
+        local_request = dict(local_request)
+        listing_id = str(local_request.get("listing_id", ""))
+        listing = _find_local_listing(listing_id)
+        if listing is None:
+            raise HTTPException(status_code=404, detail="Listing for request not found")
+
+        requested_quantity = _safe_int(local_request.get("quantity"))
+        remaining_quantity = _safe_int(listing.get("remaining_quantity"), _safe_int(listing.get("quantity")))
+        if payload.status == "approved":
+            if remaining_quantity < requested_quantity:
+                raise HTTPException(status_code=400, detail="Requested quantity exceeds remaining quantity")
+            listing = dict(listing)
+            listing["remaining_quantity"] = remaining_quantity - requested_quantity
+            listing["status"] = "completed" if listing["remaining_quantity"] == 0 else listing.get("status", "approved")
+            listing["lastRequestApprovedAt"] = datetime.now(timezone.utc).isoformat()
+            _save_or_update_local_listing(listing)
+
+        local_request["status"] = payload.status
+        local_request["reviewedAt"] = datetime.now(timezone.utc).isoformat()
+        local_request["reviewedBy"] = admin_uid
+        _save_or_update_local_food_request(local_request)
+        return {"message": "Food request updated", "id": payload.id, "status": payload.status}
+
 
     raise HTTPException(status_code=404, detail="Exchange request not found")
 
@@ -1602,8 +1889,9 @@ def create_college_food_listing(
         raise HTTPException(status_code=400, detail="Quantity must be greater than zero")
 
 
-    listing_ref = db.collection("college_food_listings").document()
-    listing_ref.set({
+    local_id = f"listing|{college_key or uid}|{_exchange_slug(payload.food_item)}|{int(datetime.now(timezone.utc).timestamp())}"
+    listing_payload = {
+        "id": local_id,
         "created_by": uid,
         "college_key": college_key,
         "college_name": _user_display_name(user_data),
@@ -1616,8 +1904,18 @@ def create_college_food_listing(
         "notes": payload.notes.strip(),
         "status": "pending",
         "createdAt": datetime.now(timezone.utc).isoformat(),
-    }, merge=True)
-    return {"message": "Listing submitted for admin approval", "id": listing_ref.id}
+    }
+    doc_id = local_id
+    try:
+        listing_ref = db.collection("college_food_listings").document()
+        listing_ref.set({k: v for k, v in listing_payload.items() if k != "id"}, merge=True)
+        doc_id = listing_ref.id
+        listing_payload["id"] = doc_id
+    except Exception as exc:
+        print(f"Warning: college listing saved locally only: {exc}")
+
+    _save_or_update_local_listing(listing_payload)
+    return {"message": "Listing submitted for admin approval", "id": doc_id}
 
 
 
@@ -1626,13 +1924,11 @@ def create_college_food_listing(
 def get_my_college_listings(authorization: Optional[str] = Header(default=None)):
     uid, user_data = _require_role_uid(authorization, {"college"})
     college_key = _resolve_user_college_key(uid, user_data)
-    docs = db.collection("college_food_listings").order_by("createdAt", direction="DESCENDING").stream()
     rows = []
-    for doc in docs:
-        data = doc.to_dict() or {}
+    for data in [*_firestore_docs("college_food_listings"), *_local_exchange_listings()]:
         if data.get("created_by") == uid or data.get("college_key") == college_key:
-            rows.append({"id": doc.id, **data})
-    return rows
+            rows.append(data)
+    return _unique_by_id(rows)
 
 
 
@@ -1641,23 +1937,21 @@ def get_my_college_listings(authorization: Optional[str] = Header(default=None))
 def get_available_college_listings(authorization: Optional[str] = Header(default=None)):
     uid, user_data = _require_role_uid(authorization, {"college"})
     college_key = _resolve_user_college_key(uid, user_data)
-    docs = (
-        db.collection("college_food_listings")
-        .where("status", "==", "approved")
-        .order_by("createdAt", direction="DESCENDING")
-        .stream()
-    )
     available = []
-    for doc in docs:
-        data = doc.to_dict() or {}
+    for data in [
+        *_firestore_docs("college_food_listings", status="approved"),
+        *_local_exchange_listings(),
+    ]:
+        if data.get("status") != "approved":
+            continue
         if data.get("created_by") == uid:
             continue
         if data.get("college_key") == college_key:
             continue
         if int(data.get("remaining_quantity", 0) or 0) <= 0:
             continue
-        available.append({"id": doc.id, **data})
-    return available
+        available.append(data)
+    return _unique_by_id(available)
 
 
 
@@ -1674,12 +1968,18 @@ def create_college_food_request(
 
 
     listing_ref = db.collection("college_food_listings").document(payload.listing_id)
-    listing_doc = listing_ref.get()
-    if not listing_doc.exists:
+    listing_doc = None
+    try:
+        listing_doc = listing_ref.get(timeout=_FIRESTORE_READ_TIMEOUT)
+    except Exception:
+        listing_doc = None
+    listing_is_firestore = bool(listing_doc is not None and listing_doc.exists)
+    listing_data = (listing_doc.to_dict() or {}) if listing_is_firestore else {}
+    if not listing_data:
+        listing_data = _find_local_listing(payload.listing_id) or {}
+    if not listing_data:
         raise HTTPException(status_code=404, detail="Listing not found")
 
-
-    listing_data = listing_doc.to_dict() or {}
     if listing_data.get("created_by") == uid:
         raise HTTPException(status_code=400, detail="You cannot request your own listing")
 
@@ -1698,8 +1998,9 @@ def create_college_food_request(
         raise HTTPException(status_code=400, detail="Requested quantity exceeds available quantity")
 
 
-    request_ref = db.collection("college_food_requests").document()
-    request_ref.set({
+    local_id = f"request|{_exchange_slug(payload.listing_id)}|{to_college_key or uid}|{int(datetime.now(timezone.utc).timestamp())}"
+    request_payload = {
+        "id": local_id,
         "listing_id": payload.listing_id,
         "food_item": listing_data.get("food_item", ""),
         "quantity": payload.quantity,
@@ -1713,8 +2014,19 @@ def create_college_food_request(
         "notes": payload.notes.strip(),
         "status": "pending",
         "createdAt": datetime.now(timezone.utc).isoformat(),
-    }, merge=True)
-    return {"message": "Food request submitted", "id": request_ref.id}
+    }
+    doc_id = local_id
+    if listing_is_firestore:
+        try:
+            request_ref = db.collection("college_food_requests").document()
+            request_ref.set({k: v for k, v in request_payload.items() if k != "id"}, merge=True)
+            doc_id = request_ref.id
+            request_payload["id"] = doc_id
+        except Exception as exc:
+            print(f"Warning: college food request saved locally only: {exc}")
+
+    _save_or_update_local_food_request(request_payload)
+    return {"message": "Food request submitted", "id": doc_id}
 
 
 
@@ -1723,18 +2035,16 @@ def create_college_food_request(
 def get_college_food_requests(authorization: Optional[str] = Header(default=None)):
     uid, user_data = _require_role_uid(authorization, {"college"})
     college_key = _resolve_user_college_key(uid, user_data)
-    docs = db.collection("college_food_requests").order_by("createdAt", direction="DESCENDING").stream()
     rows = []
-    for doc in docs:
-        data = doc.to_dict() or {}
+    for data in [*_firestore_docs("college_food_requests"), *_local_food_requests()]:
         if (
             data.get("college_to_uid") == uid
             or data.get("college_from_uid") == uid
             or data.get("college_to_key") == college_key
             or data.get("college_from_key") == college_key
         ):
-            rows.append({"id": doc.id, **data})
-    return rows
+            rows.append(data)
+    return _unique_by_id(rows)
 
 
 
@@ -1902,12 +2212,17 @@ def get_canteen_operations(
         time_slot=slot,
         restrict_to_user=False,
     )
+    average_confidence = round(
+        sum(float(row.get("confidence_score", 0) or 0) for row in merged_items)
+        / len(merged_items),
+        2,
+    ) if merged_items else 0
 
     summary = _operations_summary(merged_items)
     summary.update(
         {
             "items_forecasted": len(merged_items),
-            "average_confidence": 0,
+            "average_confidence": average_confidence,
             "highest_demand_item": merged_items[0]["food_item"] if merged_items else "N/A",
         }
     )
@@ -1919,7 +2234,7 @@ def get_canteen_operations(
         "summary": summary,
         "forecast_summary": {
             "items_forecasted": len(merged_items),
-            "average_confidence": 0,
+            "average_confidence": average_confidence,
             "highest_demand_item": merged_items[0]["food_item"] if merged_items else "N/A",
             "generated_at": datetime.now().isoformat(),
             "time_slot": slot,

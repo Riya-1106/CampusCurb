@@ -15,8 +15,22 @@ def predict_demand(input_data: dict[str, Any]) -> dict[str, Any]:
     return predict_live_demand(input_data, log_request=True, source="predict_endpoint")
 
 
-def demand_dashboard_data() -> dict[str, Any]:
-    return build_demand_dashboard(log_request=True)
+def demand_dashboard_data(
+    *,
+    target_date: str | None = None,
+    time_slot: str | None = None,
+) -> dict[str, Any]:
+    target_datetime = None
+    if target_date:
+        try:
+            target_datetime = datetime.fromisoformat(target_date)
+        except ValueError:
+            target_datetime = datetime.strptime(target_date, "%Y-%m-%d")
+    return build_demand_dashboard(
+        target_datetime=target_datetime,
+        time_slot=time_slot,
+        log_request=True,
+    )
 
 
 def menu_optimization() -> dict[str, Any]:
