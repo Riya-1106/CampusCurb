@@ -83,7 +83,7 @@ class _FoodExchangeRequestsScreenState
       if (user == null) return;
 
       final token = await user.getIdToken();
-      await _collegeExchangeService.updateExchangeStatus(
+      final response = await _collegeExchangeService.updateExchangeStatus(
         requestId,
         status,
         token!,
@@ -102,7 +102,12 @@ class _FoodExchangeRequestsScreenState
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('$type ${status.toUpperCase()} successfully')),
+          SnackBar(
+            content: Text(
+              response['message']?.toString() ??
+                  '$type ${status.toUpperCase()} successfully',
+            ),
+          ),
         );
       }
     } catch (e) {
@@ -317,6 +322,10 @@ class _FoodExchangeRequestsScreenState
   }
 
   Widget _buildFoodRequests() {
+    final pendingFoodRequests = _foodRequests
+        .where((request) => request['status'] == 'pending')
+        .toList();
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -329,19 +338,19 @@ class _FoodExchangeRequestsScreenState
             ),
             const SizedBox(height: 8),
             const Text(
-              'Approve these when a receiving college should collect food from the source college/canteen.',
+              'Only requests waiting for admin action stay here. Approved ones move out of the pending queue.',
               style: TextStyle(color: Colors.black54),
             ),
             const SizedBox(height: 16),
-            if (_foodRequests.isEmpty)
-              const Text('No inter-college food requests yet.')
+            if (pendingFoodRequests.isEmpty)
+              const Text('No pending inter-college food requests right now.')
             else
               ListView.builder(
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
-                itemCount: _foodRequests.length,
+                itemCount: pendingFoodRequests.length,
                 itemBuilder: (context, index) {
-                  final request = _foodRequests[index];
+                  final request = pendingFoodRequests[index];
                   return _buildRequestCard(request, 'food_request');
                 },
               ),

@@ -11,6 +11,11 @@ class NotificationService {
   static String get _baseUrl => ApiConfig.baseUrl;
 
   Future<void> initializeForSignedInUser() async {
+    if (kIsWeb) {
+      // Web notification setup needs a service worker + VAPID config; skip in local dev.
+      debugPrint('Skipping notification init on web build.');
+      return;
+    }
     try {
       await _firebaseMessaging.requestPermission();
       final token = await _firebaseMessaging.getToken();

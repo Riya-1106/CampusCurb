@@ -1,0 +1,45 @@
+[
+  {
+    "id": "signup|thakur-gmail-com|1777104186",
+    "college_name": "Thakur",
+    "contact_name": "Rahul",
+    "email": "thakur@gmail.com",
+    "allowed_domains": [
+      "enginerring",
+      "gmail.com"
+    ],
+    "primary_domain": "enginerring",
+    "college_key": "enginerring",
+    "phone": "9822519032",
+    "notes": "",
+    "status": "approved",
+    "createdAt": "2026-04-25T08:03:06.398285+00:00",
+    "reviewedAt": "2026-04-25T08:52:04.105199+00:00",
+    "reviewedBy": "ReFzEsVnc4Wczmfbl5hxBPl8rkQ2",
+    "rejectionNote": "",
+    "activatedAt": "2026-04-25T20:32:15.342545+00:00",
+    "activatedUid": "xSwkL96ZgoY1UyvM13Jfzfth3Qh1",
+    "activatedVia": "self-service"
+  },
+  {
+    "id": "signup|college-flow-verify-example-com|1777149523",
+    "college_name": "Flow Verify College",
+    "contact_name": "Verifier",
+    "email": "college.flow.verify@example.com",
+    "allowed_domains": [
+      "example.com"
+    ],
+    "primary_domain": "example.com",
+    "college_key": "example-com",
+    "phone": "9999999999",
+    "notes": "flow verification",
+    "status": "approved",
+    "createdAt": "2026-04-25T20:38:43.786958+00:00",
+    "reviewedAt": "2026-04-25T20:38:46.209108+00:00",
+    "reviewedBy": "ReFzEsVnc4Wczmfbl5hxBPl8rkQ2",
+    "rejectionNote": "",
+    "activatedAt": "2026-04-25T20:38:46.833365+00:00",
+    "activatedUid": "Kr2VtWhDbfSeSufR60pYi0KYgF52",
+    "activatedVia": "self-service"
+  }
+]

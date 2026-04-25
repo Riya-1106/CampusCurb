@@ -46,6 +46,24 @@ class CollegeExchangeService {
     }
   }
 
+  Future<Map<String, dynamic>> getSignupStatus(String email) async {
+    final response = await http
+        .get(
+          Uri.parse(
+            '$_baseUrl/college/signup-status?email=${Uri.encodeQueryComponent(email.trim().toLowerCase())}',
+          ),
+        )
+        .timeout(_exchangeTimeout);
+    if (response.statusCode != 200) {
+      throw Exception('Failed to check signup status: ${response.body}');
+    }
+    final decoded = json.decode(response.body);
+    if (decoded is! Map) {
+      throw Exception('Invalid signup status response format');
+    }
+    return Map<String, dynamic>.from(decoded);
+  }
+
   Future<String> _token() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
@@ -131,6 +149,7 @@ class CollegeExchangeService {
   Future<void> requestFood({
     required String listingId,
     required int quantity,
+    String preferredPickupTime = '',
     String notes = '',
   }) async {
     final response = await http
@@ -143,6 +162,7 @@ class CollegeExchangeService {
           body: json.encode({
             'listing_id': listingId,
             'quantity': quantity,
+            'preferred_pickup_time': preferredPickupTime,
             'notes': notes,
           }),
         )
@@ -176,7 +196,28 @@ class CollegeExchangeService {
     };
   }
 
-  Future<void> updateExchangeStatus(
+  Future<Map<String, dynamic>> activateApprovedAccount({String email = ''}) async {
+    final response = await http
+        .post(
+          Uri.parse('$_baseUrl/college/activate-account'),
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ${await _token()}',
+          },
+          body: json.encode({'email': email.trim().toLowerCase()}),
+        )
+        .timeout(_exchangeTimeout);
+    if (response.statusCode != 200) {
+      throw Exception('Failed to activate approved account: ${response.body}');
+    }
+    final decoded = json.decode(response.body);
+    if (decoded is! Map) {
+      throw Exception('Invalid account activation response format');
+    }
+    return Map<String, dynamic>.from(decoded);
+  }
+
+  Future<Map<String, dynamic>> updateExchangeStatus(
     String requestId,
     String status,
     String token, {
@@ -199,5 +240,10 @@ class CollegeExchangeService {
     if (response.statusCode != 200) {
       throw Exception('Failed to update status: ${response.body}');
     }
+    final decoded = json.decode(response.body);
+    if (decoded is! Map) {
+      throw Exception('Invalid exchange status response format');
+    }
+    return Map<String, dynamic>.from(decoded);
   }
 }

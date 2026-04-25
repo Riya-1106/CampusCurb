@@ -73,6 +73,19 @@ def _extract_bearer_token(authorization: Optional[str]) -> str:
 
 
 _FIRESTORE_READ_TIMEOUT = 3
+DEFAULT_ADMIN_EMAIL = os.getenv("DEFAULT_ADMIN_EMAIL", "CampusCurb30@gmail.com").strip().lower()
+COLLEGE_EXCHANGE_PICKUP_HUB_NAME = os.getenv(
+    "COLLEGE_EXCHANGE_PICKUP_HUB_NAME",
+    "Campus Curb Main Canteen Gate",
+).strip()
+COLLEGE_EXCHANGE_PICKUP_HUB_ADDRESS = os.getenv(
+    "COLLEGE_EXCHANGE_PICKUP_HUB_ADDRESS",
+    "Student campus pickup counter for approved surplus collections.",
+).strip()
+COLLEGE_EXCHANGE_PICKUP_HUB_QUERY = os.getenv(
+    "COLLEGE_EXCHANGE_PICKUP_HUB_QUERY",
+    COLLEGE_EXCHANGE_PICKUP_HUB_NAME,
+).strip()
 
 
 
@@ -105,13 +118,10 @@ def _require_admin_uid(authorization: Optional[str]) -> str:
     if not uid:
         raise HTTPException(status_code=401, detail="Invalid token payload")
 
-
-    user_doc = db.collection("users").document(uid).get(timeout=_FIRESTORE_READ_TIMEOUT)
-    if not user_doc.exists:
+    user_data = _resolve_user_profile(uid, decoded)
+    if not user_data:
         raise HTTPException(status_code=403, detail="User profile missing")
 
-
-    user_data = user_doc.to_dict() or {}
     if user_data.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Admin role required")
 
@@ -122,13 +132,22 @@ def _require_admin_uid(authorization: Optional[str]) -> str:
 
 
 def _require_role_uid(authorization: Optional[str], allowed_roles: set[str]) -> tuple[str, Dict]:
-    uid = _require_authenticated_uid(authorization)
-    user_doc = db.collection("users").document(uid).get(timeout=_FIRESTORE_READ_TIMEOUT)
-    if not user_doc.exists:
+    token = _extract_bearer_token(authorization)
+    try:
+        decoded = firebase_auth.verify_id_token(token)
+    except Exception as exc:
+        raise HTTPException(status_code=401, detail="Invalid Firebase token") from exc
+
+
+    uid = decoded.get("uid")
+    if not uid:
+        raise HTTPException(status_code=401, detail="Invalid token payload")
+
+
+    user_data = _resolve_user_profile(uid, decoded)
+    if not user_data:
         raise HTTPException(status_code=403, detail="User profile missing")
 
-
-    user_data = user_doc.to_dict() or {}
     if user_data.get("role") not in allowed_roles:
         raise HTTPException(status_code=403, detail="Insufficient role")
     if user_data.get("isActive") is False:
@@ -785,6 +804,7 @@ EXCHANGE_FILE = DATA_DIR / "admin_exchange_requests.json"
 COLLEGE_LISTINGS_FILE = DATA_DIR / "college_food_listings.json"
 COLLEGE_REQUESTS_FILE = DATA_DIR / "college_food_requests.json"
 COLLEGE_SIGNUP_FILE = DATA_DIR / "college_signup_requests.json"
+USER_PROFILES_FILE = DATA_DIR / "user_profiles.json"
 
 
 MENU_MASTER = DATA_DIR / "menu.json"
@@ -833,6 +853,7 @@ DEFAULT_EXCHANGE_REQUESTS = [
 DEFAULT_COLLEGE_LISTINGS = []
 DEFAULT_COLLEGE_REQUESTS = []
 DEFAULT_COLLEGE_SIGNUPS = []
+DEFAULT_USER_PROFILES = {}
 
 
 DEFAULT_MENU = [
@@ -848,6 +869,8 @@ DEFAULT_OPERATIONS = []
 DEFAULT_POINTS_CACHE = {}
 LOGIN_ATTEMPTS_FILE = DATA_DIR / "auth_login_attempts.json"
 DEFAULT_LOGIN_ATTEMPTS = []
+ADMIN_ACTIONS_FILE = DATA_DIR / "admin_action_logs.json"
+DEFAULT_ADMIN_ACTIONS = []
 
 
 
@@ -866,6 +889,112 @@ def load_data(path: Path, default):
 
 def save_data(path: Path, payload):
     path.write_text(json.dumps(payload, indent=2))
+
+
+def _normalize_email(value: Any) -> str:
+    return str(value or "").strip().lower()
+
+
+def _load_local_user_profiles() -> Dict[str, Dict[str, Any]]:
+    rows = load_data(USER_PROFILES_FILE, DEFAULT_USER_PROFILES)
+    return rows if isinstance(rows, dict) else {}
+
+
+def _save_local_user_profiles(rows: Dict[str, Dict[str, Any]]) -> None:
+    save_data(USER_PROFILES_FILE, rows)
+
+
+def _save_local_user_profile(uid: str, profile: Dict[str, Any]) -> None:
+    normalized_uid = str(uid or "").strip()
+    if not normalized_uid:
+        return
+    rows = _load_local_user_profiles()
+    next_profile = dict(rows.get(normalized_uid, {}))
+    next_profile.update(profile or {})
+    next_profile["uid"] = normalized_uid
+    if "email" in next_profile:
+        next_profile["email"] = _normalize_email(next_profile.get("email"))
+    rows[normalized_uid] = next_profile
+    _save_local_user_profiles(rows)
+
+
+def _find_local_user_profile(uid: str, *, email: str = "") -> Optional[Dict[str, Any]]:
+    rows = _load_local_user_profiles()
+    normalized_uid = str(uid or "").strip()
+    if normalized_uid:
+        by_uid = rows.get(normalized_uid)
+        if isinstance(by_uid, dict):
+            profile = dict(by_uid)
+            profile["uid"] = normalized_uid
+            return profile
+
+
+    normalized_email = _normalize_email(email)
+    if not normalized_email:
+        return None
+
+
+    for stored_uid, profile in rows.items():
+        if not isinstance(profile, dict):
+            continue
+        if _normalize_email(profile.get("email")) != normalized_email:
+            continue
+        resolved_profile = dict(profile)
+        resolved_profile["uid"] = normalized_uid or str(stored_uid)
+        if normalized_uid and normalized_uid != str(stored_uid):
+            _save_local_user_profile(normalized_uid, resolved_profile)
+        return resolved_profile
+    return None
+
+
+def _fetch_firestore_user_profile(uid: str) -> Optional[Dict[str, Any]]:
+    normalized_uid = str(uid or "").strip()
+    if not normalized_uid:
+        return None
+    try:
+        user_doc = db.collection("users").document(normalized_uid).get(
+            timeout=_FIRESTORE_READ_TIMEOUT,
+            retry=None,
+        )
+    except Exception as exc:
+        print(f"Warning: Firestore user lookup failed for {normalized_uid}: {exc}")
+        return None
+    if not user_doc.exists:
+        return None
+    profile = user_doc.to_dict() or {}
+    _save_local_user_profile(normalized_uid, profile)
+    return dict(profile)
+
+
+def _resolve_user_profile(uid: str, decoded: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
+    normalized_uid = str(uid or "").strip()
+    normalized_email = _normalize_email((decoded or {}).get("email"))
+
+
+    local_profile = _find_local_user_profile(normalized_uid, email=normalized_email)
+    if local_profile is not None:
+        return local_profile
+
+
+    firestore_profile = _fetch_firestore_user_profile(normalized_uid)
+    if firestore_profile is not None:
+        return firestore_profile
+
+
+    if normalized_email and normalized_email == DEFAULT_ADMIN_EMAIL:
+        fallback_profile = {
+            "email": normalized_email,
+            "name": "CampusCurb Admin",
+            "role": "admin",
+            "department": "",
+            "points": 0,
+            "isActive": True,
+            "createdAt": datetime.now(timezone.utc).isoformat(),
+            "seededBy": "default_admin_fallback",
+        }
+        _save_local_user_profile(normalized_uid, fallback_profile)
+        return fallback_profile
+    return None
 
 
 def _sync_operation_to_firestore(operation: Dict[str, Any]) -> None:
@@ -1100,6 +1229,14 @@ class LoginAttemptInput(BaseModel):
     selected_role: str = ""
 
 
+class AdminActionLogInput(BaseModel):
+    admin_id: str
+    action: str
+    target_id: str = ""
+    details: str = ""
+    timestamp: str = ""
+
+
 
 
 @app.post("/auth/login-attempt")
@@ -1129,6 +1266,33 @@ def admin_login_attempts(authorization: Optional[str] = Header(default=None)):
     _require_admin_uid(authorization)
     attempts = load_data(LOGIN_ATTEMPTS_FILE, DEFAULT_LOGIN_ATTEMPTS)
     return list(reversed(attempts))
+
+
+@app.post("/admin/log-action")
+def log_admin_action(
+    payload: AdminActionLogInput,
+    request: Request,
+    authorization: Optional[str] = Header(default=None),
+):
+    try:
+        resolved_admin_uid = _require_admin_uid(authorization)
+    except Exception:
+        resolved_admin_uid = str(payload.admin_id or "").strip()
+
+    action_logs = load_data(ADMIN_ACTIONS_FILE, DEFAULT_ADMIN_ACTIONS)
+    action_logs.append({
+        "timestamp": payload.timestamp.strip() or datetime.now(timezone.utc).isoformat(),
+        "admin_id": resolved_admin_uid,
+        "action": payload.action.strip(),
+        "target_id": payload.target_id.strip(),
+        "details": payload.details.strip(),
+        "ip": request.client.host if request.client else "unknown",
+        "user_agent": request.headers.get("user-agent", "unknown"),
+    })
+    if len(action_logs) > 2000:
+        action_logs = action_logs[-2000:]
+    save_data(ADMIN_ACTIONS_FILE, action_logs)
+    return {"message": "Admin action logged"}
 
 
 
@@ -1215,7 +1379,16 @@ def admin_create_user(
         user_doc["collegeKey"] = college_key
 
 
-    db.collection("users").document(created_user.uid).set(user_doc, merge=True)
+    _save_local_user_profile(created_user.uid, user_doc)
+    try:
+        db.collection("users").document(created_user.uid).set(
+            user_doc,
+            merge=True,
+            timeout=_FIRESTORE_READ_TIMEOUT,
+            retry=None,
+        )
+    except Exception as exc:
+        print(f"Warning: user profile saved locally only for {email}: {exc}")
 
 
     return {
@@ -1319,6 +1492,10 @@ class CollegeSignupRequestInput(BaseModel):
     allowed_domains: List[str] = []
 
 
+class CollegeAccountActivationInput(BaseModel):
+    email: str = ""
+
+
 
 
 class CollegeFoodListingInput(BaseModel):
@@ -1335,6 +1512,7 @@ class CollegeFoodRequestInput(BaseModel):
     listing_id: str
     quantity: int
     notes: str = ""
+    preferred_pickup_time: str = ""
 
 
 
@@ -1364,7 +1542,8 @@ def _firestore_docs(collection_name: str, *, status: Optional[str] = None) -> Li
         if status is not None:
             query = query.where("status", "==", status)
         docs = query.order_by("createdAt", direction="DESCENDING").stream(
-            timeout=_FIRESTORE_READ_TIMEOUT
+            timeout=_FIRESTORE_READ_TIMEOUT,
+            retry=None,
         )
         return _serialize_docs(docs)
     except Exception as exc:
@@ -1400,6 +1579,81 @@ def _save_local_signup_requests(rows: List[Dict[str, Any]]) -> None:
     save_data(COLLEGE_SIGNUP_FILE, rows)
 
 
+def _latest_signup_request_by_email(email: str) -> Optional[Dict[str, Any]]:
+    normalized_email = _normalize_email(email)
+    if not normalized_email:
+        return None
+    matches = [
+        dict(row)
+        for row in _local_signup_requests()
+        if _normalize_email(row.get("email")) == normalized_email
+    ]
+    if not matches:
+        return None
+    matches.sort(key=lambda item: str(item.get("createdAt") or ""), reverse=True)
+    return matches[0]
+
+
+def _save_updated_signup_request(signup_id: str, updates: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    rows = _local_signup_requests()
+    updated_row = None
+    next_rows = []
+    for row in rows:
+        if str(row.get("id")) != signup_id:
+            next_rows.append(row)
+            continue
+        updated_row = dict(row)
+        updated_row.update(updates or {})
+        next_rows.append(updated_row)
+    if updated_row is not None:
+        _save_local_signup_requests(next_rows)
+    return updated_row
+
+
+def _college_signup_profile(signup_data: Dict[str, Any], *, uid: str, signup_id: str) -> Dict[str, Any]:
+    email = _normalize_email(signup_data.get("email"))
+    college_name = str(signup_data.get("college_name", "")).strip()
+    allowed_domains = signup_data.get("allowed_domains")
+    normalized_domains = []
+    if isinstance(allowed_domains, list):
+        for domain in allowed_domains:
+            parsed = _normalize_domain(str(domain))
+            if parsed and parsed not in normalized_domains:
+                normalized_domains.append(parsed)
+    email_domain = _email_domain(email)
+    if email_domain and email_domain not in normalized_domains:
+        normalized_domains.append(email_domain)
+
+
+    college_key = _build_college_key(college_name, email, normalized_domains)
+    if not college_key:
+        college_key = _normalize_college_key(email_domain or "college")
+
+
+    return {
+        "name": signup_data.get("contact_name", "") or college_name,
+        "email": email,
+        "role": "college",
+        "department": "",
+        "collegeName": college_name,
+        "collegeDomains": normalized_domains,
+        "collegeKey": college_key,
+        "points": 0,
+        "isActive": True,
+        "provisionedFromSignupRequestId": signup_id,
+    }
+
+
+def _is_self_service_activation_fallback(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return (
+        "invalid_grant" in message
+        or "invalid jwt signature" in message
+        or "metadata from plugin failed" in message
+        or "the default firebase app does not exist" in message
+    )
+
+
 def _base_local_listings() -> List[Dict[str, Any]]:
     rows = load_data(COLLEGE_LISTINGS_FILE, DEFAULT_COLLEGE_LISTINGS)
     return rows if isinstance(rows, list) else []
@@ -1423,6 +1677,19 @@ def _generated_waste_listings() -> List[Dict[str, Any]]:
     if not isinstance(operations, list):
         return []
 
+    latest_date = ""
+    for row in operations:
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("recorded_by", "")) == "demo-seed":
+            continue
+        wasted = _safe_int(row.get("quantity_wasted"))
+        if wasted <= 0:
+            continue
+        date = str(row.get("date") or "").strip()
+        if date and date > latest_date:
+            latest_date = date
+
     generated: List[Dict[str, Any]] = []
     for row in operations:
         if not isinstance(row, dict):
@@ -1434,6 +1701,8 @@ def _generated_waste_listings() -> List[Dict[str, Any]]:
             continue
         food_item = str(row.get("food_item") or "Surplus food").strip()
         date = str(row.get("date") or datetime.now(timezone.utc).date().isoformat())
+        if latest_date and date != latest_date:
+            continue
         time_slot = str(row.get("time_slot") or "today")
         operation_id = str(row.get("id") or f"{date}|{time_slot}|{food_item}")
         listing_id = f"waste|{_exchange_slug(operation_id)}"
@@ -1451,12 +1720,26 @@ def _generated_waste_listings() -> List[Dict[str, Any]]:
                 "remaining_quantity": wasted,
                 "unit": "portions",
                 "pickup_window": f"{date} • {time_slot}",
+                "pickup_location_name": COLLEGE_EXCHANGE_PICKUP_HUB_NAME,
+                "pickup_location_address": COLLEGE_EXCHANGE_PICKUP_HUB_ADDRESS,
+                "pickup_map_query": COLLEGE_EXCHANGE_PICKUP_HUB_QUERY,
                 "notes": "Auto-created from canteen waste log for inter-college sharing.",
-                "status": "pending",
+                "status": "live",
                 "createdAt": str(row.get("updated_at") or datetime.now(timezone.utc).isoformat()),
+                "source_date": date,
+                "source_time_slot": time_slot,
+                "confidence_label": str(row.get("confidence_label") or ""),
             }
         )
-    return generated
+    return sorted(
+        generated,
+        key=lambda item: (
+            str(item.get("source_date") or ""),
+            str(item.get("source_time_slot") or ""),
+            _safe_int(item.get("remaining_quantity")),
+        ),
+        reverse=True,
+    )
 
 
 def _local_exchange_listings(include_generated: bool = True) -> List[Dict[str, Any]]:
@@ -1525,6 +1808,126 @@ def _public_exchange_summary() -> Dict[str, int]:
     }
 
 
+def _review_signup_request_record(
+    signup_data: Dict[str, Any],
+    *,
+    signup_id: str,
+    admin_uid: str,
+    status: str,
+    rejection_note: str = "",
+) -> Dict[str, Any]:
+    email = str(signup_data.get("email", "")).strip().lower()
+    response = {"message": "Signup request updated", "id": signup_id, "status": status}
+
+    if status == "approved":
+        if not email:
+            raise HTTPException(status_code=400, detail="Signup request is missing email")
+
+        college_name = str(signup_data.get("college_name", "")).strip()
+
+        created_new_auth_user = False
+        auth_user = None
+
+        try:
+            auth_user = firebase_auth.get_user_by_email(email)
+        except Exception:
+            try:
+                auth_user = firebase_auth.create_user(
+                    email=email,
+                    password=_generate_strong_password(),
+                )
+                created_new_auth_user = True
+            except Exception as exc:
+                if _is_self_service_activation_fallback(exc):
+                    response["message"] = (
+                        "Signup approved. Firebase admin provisioning is unavailable, "
+                        "so the college must activate the account from the portal."
+                    )
+                    response["provisioned_email"] = email
+                    response["activation_required"] = True
+                    response["password_setup_email_sent"] = False
+                    response["password_setup_link_generated"] = False
+                    return response
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Unable to provision college auth account: {str(exc)}",
+                ) from exc
+
+        reset_link = ""
+        password_setup_email_sent = False
+        password_setup_email_error = ""
+
+        try:
+            reset_link = firebase_auth.generate_password_reset_link(email)
+        except Exception as exc:
+            if created_new_auth_user and auth_user is not None:
+                try:
+                    firebase_auth.delete_user(auth_user.uid)
+                except Exception:
+                    pass
+            if _is_self_service_activation_fallback(exc):
+                response["message"] = (
+                    "Signup approved. Firebase admin password setup is unavailable, "
+                    "so the college must activate the account from the portal."
+                )
+                response["provisioned_email"] = email
+                response["activation_required"] = True
+                response["password_setup_email_sent"] = False
+                response["password_setup_link_generated"] = False
+                return response
+            raise HTTPException(
+                status_code=500,
+                detail=f"Unable to create password setup link: {str(exc)}",
+            ) from exc
+
+        try:
+            _send_password_setup_email(email, college_name, reset_link)
+            password_setup_email_sent = True
+        except HTTPException as exc:
+            password_setup_email_error = str(exc.detail)
+            print(f"Warning: Could not send approval email to {email}: {password_setup_email_error}")
+        except Exception as exc:
+            password_setup_email_error = str(exc)
+            print(f"Warning: Could not send approval email to {email}: {password_setup_email_error}")
+
+        college_profile = _college_signup_profile(signup_data, uid=auth_user.uid, signup_id=signup_id)
+        college_profile["createdAt"] = datetime.now(timezone.utc).isoformat()
+        college_profile["createdBy"] = admin_uid
+        _save_local_user_profile(auth_user.uid, college_profile)
+        profile_saved_locally_only = False
+        try:
+            db.collection("users").document(auth_user.uid).set(
+                college_profile,
+                merge=True,
+                timeout=_FIRESTORE_READ_TIMEOUT,
+                retry=None,
+            )
+        except Exception as exc:
+            profile_saved_locally_only = True
+            print(f"Warning: college profile saved locally only for {email}: {exc}")
+
+        response["provisioned_email"] = email
+        response["auth_user_created"] = created_new_auth_user
+        response["password_setup_email_sent"] = password_setup_email_sent
+        response["password_setup_link_generated"] = bool(reset_link)
+        response["profile_saved_locally_only"] = profile_saved_locally_only
+        if password_setup_email_error:
+            response["password_setup_email_error"] = password_setup_email_error
+        return response
+
+    if status == "rejected" and email:
+        college_name = str(signup_data.get("college_name", "")).strip()
+        note = rejection_note or "No reason provided."
+        try:
+            _send_college_rejection_email(email, college_name, note)
+            response["rejection_email_sent"] = True
+        except Exception as exc:
+            print(f"Warning: Failed to send rejection email to {email}: {str(exc)}")
+            response["rejection_email_sent"] = False
+            response["rejection_email_error"] = str(exc)
+    return response
+
+
 
 
 @app.post("/college/signup-request")
@@ -1561,21 +1964,6 @@ def create_college_signup_request(payload: CollegeSignupRequestInput):
     if existing_local:
         raise HTTPException(status_code=400, detail="A signup request is already pending for this email")
 
-    try:
-        existing = list(
-            db.collection("college_signup_requests")
-            .where("email", "==", email)
-            .where("status", "==", "pending")
-            .limit(1)
-            .stream(timeout=_FIRESTORE_READ_TIMEOUT)
-        )
-        if existing:
-            raise HTTPException(status_code=400, detail="A signup request is already pending for this email")
-    except HTTPException:
-        raise
-    except Exception as exc:
-        print(f"Warning: signup duplicate Firestore check skipped: {exc}")
-
     local_id = f"signup|{_exchange_slug(email)}|{int(datetime.now(timezone.utc).timestamp())}"
     signup_payload = {
         "id": local_id,
@@ -1590,44 +1978,112 @@ def create_college_signup_request(payload: CollegeSignupRequestInput):
         "status": "pending",
         "createdAt": datetime.now(timezone.utc).isoformat(),
     }
-    doc_id = local_id
-    try:
-        doc_ref = db.collection("college_signup_requests").document()
-        doc_ref.set({k: v for k, v in signup_payload.items() if k != "id"}, merge=True)
-        doc_id = doc_ref.id
-        signup_payload["id"] = doc_id
-    except Exception as exc:
-        print(f"Warning: college signup saved locally only: {exc}")
-
-    rows = [row for row in _local_signup_requests() if str(row.get("id")) != doc_id]
+    rows = [row for row in _local_signup_requests() if str(row.get("id")) != local_id]
     rows.append(signup_payload)
     _save_local_signup_requests(rows)
-    return {"message": "College signup request submitted", "id": doc_id}
+    return {"message": "College signup request submitted", "id": local_id}
 
 
+@app.get("/college/signup-status")
+def get_college_signup_status(email: str):
+    normalized_email = _normalize_email(email)
+    if not normalized_email:
+        raise HTTPException(status_code=400, detail="Email is required")
+
+
+    signup = _latest_signup_request_by_email(normalized_email)
+    if signup is None:
+        raise HTTPException(status_code=404, detail="No college signup request found for this email")
+
+
+    return {
+        "id": signup.get("id"),
+        "email": normalized_email,
+        "status": signup.get("status", "pending"),
+        "college_name": signup.get("college_name", ""),
+        "contact_name": signup.get("contact_name", ""),
+        "activation_required": signup.get("status") == "approved",
+    }
+
+
+@app.post("/college/activate-account")
+def activate_college_account(
+    payload: CollegeAccountActivationInput,
+    authorization: Optional[str] = Header(default=None),
+):
+    token = _extract_bearer_token(authorization)
+    try:
+        decoded = firebase_auth.verify_id_token(token)
+    except Exception as exc:
+        raise HTTPException(status_code=401, detail="Invalid Firebase token") from exc
+
+
+    uid = decoded.get("uid")
+    email = _normalize_email(payload.email or decoded.get("email"))
+    if not uid or not email:
+        raise HTTPException(status_code=401, detail="Invalid token payload")
+
+
+    signup = _latest_signup_request_by_email(email)
+    if signup is None:
+        raise HTTPException(status_code=404, detail="No signup request found for this email")
+
+
+    status = str(signup.get("status", "")).strip().lower()
+    if status != "approved":
+        if status == "pending":
+            raise HTTPException(status_code=403, detail="Your signup request is still pending admin approval")
+        if status == "rejected":
+            raise HTTPException(status_code=403, detail="Your signup request was rejected by admin")
+        raise HTTPException(status_code=403, detail="Your signup request is not approved")
+
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    college_profile = _college_signup_profile(signup, uid=uid, signup_id=str(signup.get("id", "")))
+    college_profile["createdAt"] = str(signup.get("createdAt") or now_iso)
+    college_profile["createdBy"] = str(signup.get("reviewedBy", "self-service"))
+    college_profile["activatedAt"] = now_iso
+    _save_local_user_profile(uid, college_profile)
+
+
+    profile_saved_locally_only = False
+    try:
+        db.collection("users").document(uid).set(
+            college_profile,
+            merge=True,
+            timeout=_FIRESTORE_READ_TIMEOUT,
+            retry=None,
+        )
+    except Exception as exc:
+        profile_saved_locally_only = True
+        print(f"Warning: activated college profile saved locally only for {email}: {exc}")
+
+
+    updated_signup = _save_updated_signup_request(
+        str(signup.get("id", "")),
+        {
+            "activatedAt": now_iso,
+            "activatedUid": uid,
+            "activatedVia": "self-service",
+        },
+    ) or signup
+
+
+    return {
+        "message": "College account activated",
+        "id": updated_signup.get("id"),
+        "email": email,
+        "uid": uid,
+        "profile_saved_locally_only": profile_saved_locally_only,
+    }
 
 
 @app.get("/admin/exchange-requests")
 def admin_exchange_requests(authorization: Optional[str] = Header(default=None)):
     _require_admin_uid(authorization)
-    signup_requests = _unique_by_id(
-        [
-            *_firestore_docs("college_signup_requests"),
-            *_local_signup_requests(),
-        ]
-    )
-    listings = _unique_by_id(
-        [
-            *_firestore_docs("college_food_listings"),
-            *_local_exchange_listings(),
-        ]
-    )
-    food_requests = _unique_by_id(
-        [
-            *_firestore_docs("college_food_requests"),
-            *_local_food_requests(),
-        ]
-    )
+    signup_requests = _unique_by_id(_local_signup_requests())
+    listings = _unique_by_id(_local_exchange_listings())
+    food_requests = _unique_by_id(_local_food_requests())
     return {
         "signup_requests": signup_requests,
         "pending_listings": listings,
@@ -1651,146 +2107,50 @@ def admin_exchange_status(
 
     signup_ref = db.collection("college_signup_requests").document(payload.id)
     try:
-        signup_doc = signup_ref.get(timeout=_FIRESTORE_READ_TIMEOUT)
+        signup_doc = signup_ref.get(timeout=_FIRESTORE_READ_TIMEOUT, retry=None)
     except Exception:
         signup_doc = None
     if signup_doc is not None and signup_doc.exists:
         signup_data = signup_doc.to_dict() or {}
-        email = str(signup_data.get("email", "")).strip().lower()
+        response = _review_signup_request_record(
+            signup_data,
+            signup_id=payload.id,
+            admin_uid=admin_uid,
+            status=payload.status,
+            rejection_note=payload.rejection_note or "",
+        )
 
-
-        if payload.status == "approved":
-            if not email:
-                raise HTTPException(status_code=400, detail="Signup request is missing email")
-
-
-            college_name = str(signup_data.get("college_name", "")).strip()
-            allowed_domains = signup_data.get("allowed_domains")
-            normalized_domains = []
-            if isinstance(allowed_domains, list):
-                for domain in allowed_domains:
-                    parsed = _normalize_domain(str(domain))
-                    if parsed and parsed not in normalized_domains:
-                        normalized_domains.append(parsed)
-            email_domain = _email_domain(email)
-            if email_domain and email_domain not in normalized_domains:
-                normalized_domains.append(email_domain)
-
-
-            college_key = _build_college_key(college_name, email, normalized_domains)
-            if not college_key:
-                college_key = _normalize_college_key(email_domain or "college")
-
-
-            created_new_auth_user = False
-            auth_user = None
-
-
-            try:
-                auth_user = firebase_auth.get_user_by_email(email)
-            except Exception:
-                try:
-                    auth_user = firebase_auth.create_user(
-                        email=email,
-                        password=_generate_strong_password(),
-                    )
-                    created_new_auth_user = True
-                except Exception as exc:
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"Unable to provision college auth account: {str(exc)}",
-                    ) from exc
-
-
-            reset_link = ""
-            password_setup_email_sent = False
-            password_setup_email_error = ""
-
-            try:
-                reset_link = firebase_auth.generate_password_reset_link(email)
-            except Exception as exc:
-                if created_new_auth_user and auth_user is not None:
-                    try:
-                        firebase_auth.delete_user(auth_user.uid)
-                    except Exception:
-                        pass
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"Unable to create password setup link: {str(exc)}",
-                ) from exc
-
-            try:
-                _send_password_setup_email(email, college_name, reset_link)
-                password_setup_email_sent = True
-            except HTTPException as exc:
-                password_setup_email_error = str(exc.detail)
-                print(f"Warning: Could not send approval email to {email}: {password_setup_email_error}")
-            except Exception as exc:
-                password_setup_email_error = str(exc)
-                print(f"Warning: Could not send approval email to {email}: {password_setup_email_error}")
-
-
-            db.collection("users").document(auth_user.uid).set(
-                {
-                    "name": signup_data.get("contact_name", "") or college_name,
-                    "email": email,
-                    "role": "college",
-                    "department": "",
-                    "collegeName": college_name,
-                    "collegeDomains": normalized_domains,
-                    "collegeKey": college_key,
-                    "points": 0,
-                    "createdAt": datetime.now(timezone.utc).isoformat(),
-                    "createdBy": admin_uid,
-                    "isActive": True,
-                    "provisionedFromSignupRequestId": payload.id,
-                },
-                merge=True,
-            )
-
-
-        signup_ref.set({
-            "status": payload.status,
-            "reviewedAt": datetime.now(timezone.utc).isoformat(),
-            "reviewedBy": admin_uid,
-            "rejectionNote": payload.rejection_note or "",
-        }, merge=True)
-        
-        # Send rejection email if status is rejected
-        if payload.status == "rejected" and email:
-            college_name = str(signup_data.get("college_name", "")).strip()
-            rejection_note = payload.rejection_note or "No reason provided."
-            try:
-                _send_college_rejection_email(email, college_name, rejection_note)
-            except Exception as exc:
-                # Log but don't fail the request if email fails
-                print(f"Warning: Failed to send rejection email to {email}: {str(exc)}")
-        
-        response = {"message": "Signup request updated", "id": payload.id, "status": payload.status}
-        if payload.status == "approved":
-            response["provisioned_email"] = email
-            response["auth_user_created"] = created_new_auth_user
-            response["password_setup_email_sent"] = password_setup_email_sent
-            response["password_setup_link_generated"] = bool(reset_link)
-            if password_setup_email_error:
-                response["password_setup_email_error"] = password_setup_email_error
-        elif payload.status == "rejected":
-            response["rejection_email_sent"] = True
+        try:
+            signup_ref.set({
+                "status": payload.status,
+                "reviewedAt": datetime.now(timezone.utc).isoformat(),
+                "reviewedBy": admin_uid,
+                "rejectionNote": payload.rejection_note or "",
+            }, merge=True, timeout=_FIRESTORE_READ_TIMEOUT, retry=None)
+        except Exception as exc:
+            print(f"Warning: signup status sync failed for {payload.id}: {exc}")
         return response
 
     local_signups = _local_signup_requests()
     local_signup = next((row for row in local_signups if str(row.get("id")) == payload.id), None)
     if local_signup is not None:
+        response = _review_signup_request_record(
+            local_signup,
+            signup_id=payload.id,
+            admin_uid=admin_uid,
+            status=payload.status,
+            rejection_note=payload.rejection_note or "",
+        )
         local_signup["status"] = payload.status
         local_signup["reviewedAt"] = datetime.now(timezone.utc).isoformat()
         local_signup["reviewedBy"] = admin_uid
         local_signup["rejectionNote"] = payload.rejection_note or ""
         _save_local_signup_requests(local_signups)
-        return {"message": "Signup request updated", "id": payload.id, "status": payload.status}
+        return response
 
     listing_ref = db.collection("college_food_listings").document(payload.id)
     try:
-        listing_doc = listing_ref.get(timeout=_FIRESTORE_READ_TIMEOUT)
+        listing_doc = listing_ref.get(timeout=_FIRESTORE_READ_TIMEOUT, retry=None)
     except Exception:
         listing_doc = None
     if listing_doc is not None and listing_doc.exists:
@@ -1801,7 +2161,10 @@ def admin_exchange_status(
         }
         if payload.status == "approved":
             update["approvedAt"] = datetime.now(timezone.utc).isoformat()
-        listing_ref.set(update, merge=True)
+        try:
+            listing_ref.set(update, merge=True, timeout=_FIRESTORE_READ_TIMEOUT, retry=None)
+        except Exception as exc:
+            print(f"Warning: listing status sync failed for {payload.id}: {exc}")
         return {"message": "Listing status updated", "id": payload.id, "status": payload.status}
 
     local_listing = _update_local_listing_status(payload.id, payload.status, admin_uid)
@@ -1810,14 +2173,14 @@ def admin_exchange_status(
 
     request_ref = db.collection("college_food_requests").document(payload.id)
     try:
-        request_doc = request_ref.get(timeout=_FIRESTORE_READ_TIMEOUT)
+        request_doc = request_ref.get(timeout=_FIRESTORE_READ_TIMEOUT, retry=None)
     except Exception:
         request_doc = None
     if request_doc is not None and request_doc.exists:
         request_data = request_doc.to_dict() or {}
         listing_id = str(request_data.get("listing_id", ""))
         listing_ref = db.collection("college_food_listings").document(listing_id)
-        listing_doc = listing_ref.get(timeout=_FIRESTORE_READ_TIMEOUT)
+        listing_doc = listing_ref.get(timeout=_FIRESTORE_READ_TIMEOUT, retry=None)
         if not listing_doc.exists:
             raise HTTPException(status_code=404, detail="Listing for request not found")
 
@@ -1831,18 +2194,24 @@ def admin_exchange_status(
             if remaining_quantity < requested_quantity:
                 raise HTTPException(status_code=400, detail="Requested quantity exceeds remaining quantity")
             new_remaining = remaining_quantity - requested_quantity
-            listing_ref.set({
-                "remaining_quantity": new_remaining,
-                "status": "completed" if new_remaining == 0 else listing_data.get("status", "approved"),
-                "lastRequestApprovedAt": datetime.now(timezone.utc).isoformat(),
-            }, merge=True)
+            try:
+                listing_ref.set({
+                    "remaining_quantity": new_remaining,
+                    "status": "completed" if new_remaining == 0 else listing_data.get("status", "approved"),
+                    "lastRequestApprovedAt": datetime.now(timezone.utc).isoformat(),
+                }, merge=True, timeout=_FIRESTORE_READ_TIMEOUT, retry=None)
+            except Exception as exc:
+                print(f"Warning: listing quantity sync failed for {listing_id}: {exc}")
 
 
-        request_ref.set({
-            "status": payload.status,
-            "reviewedAt": datetime.now(timezone.utc).isoformat(),
-            "reviewedBy": admin_uid,
-        }, merge=True)
+        try:
+            request_ref.set({
+                "status": payload.status,
+                "reviewedAt": datetime.now(timezone.utc).isoformat(),
+                "reviewedBy": admin_uid,
+            }, merge=True, timeout=_FIRESTORE_READ_TIMEOUT, retry=None)
+        except Exception as exc:
+            print(f"Warning: food request status sync failed for {payload.id}: {exc}")
         return {"message": "Food request updated", "id": payload.id, "status": payload.status}
 
     local_request = _find_local_food_request(payload.id)
@@ -1925,7 +2294,7 @@ def get_my_college_listings(authorization: Optional[str] = Header(default=None))
     uid, user_data = _require_role_uid(authorization, {"college"})
     college_key = _resolve_user_college_key(uid, user_data)
     rows = []
-    for data in [*_firestore_docs("college_food_listings"), *_local_exchange_listings()]:
+    for data in _local_exchange_listings():
         if data.get("created_by") == uid or data.get("college_key") == college_key:
             rows.append(data)
     return _unique_by_id(rows)
@@ -1938,11 +2307,14 @@ def get_available_college_listings(authorization: Optional[str] = Header(default
     uid, user_data = _require_role_uid(authorization, {"college"})
     college_key = _resolve_user_college_key(uid, user_data)
     available = []
-    for data in [
-        *_firestore_docs("college_food_listings", status="approved"),
-        *_local_exchange_listings(),
-    ]:
-        if data.get("status") != "approved":
+    for data in _local_exchange_listings():
+        source = str(data.get("source", "")).strip().lower()
+        status = str(data.get("status", "")).strip().lower()
+        is_canteen_waste = source == "canteen_waste"
+        if is_canteen_waste:
+            if status in {"rejected", "completed"}:
+                continue
+        elif status != "approved":
             continue
         if data.get("created_by") == uid:
             continue
@@ -1951,7 +2323,14 @@ def get_available_college_listings(authorization: Optional[str] = Header(default
         if int(data.get("remaining_quantity", 0) or 0) <= 0:
             continue
         available.append(data)
-    return _unique_by_id(available)
+    return sorted(
+        _unique_by_id(available),
+        key=lambda item: (
+            1 if str(item.get("source", "")).strip().lower() == "canteen_waste" else 0,
+            str(item.get("createdAt") or ""),
+        ),
+        reverse=True,
+    )
 
 
 
@@ -1967,16 +2346,18 @@ def create_college_food_request(
         raise HTTPException(status_code=400, detail="Quantity must be greater than zero")
 
 
-    listing_ref = db.collection("college_food_listings").document(payload.listing_id)
-    listing_doc = None
-    try:
-        listing_doc = listing_ref.get(timeout=_FIRESTORE_READ_TIMEOUT)
-    except Exception:
-        listing_doc = None
-    listing_is_firestore = bool(listing_doc is not None and listing_doc.exists)
-    listing_data = (listing_doc.to_dict() or {}) if listing_is_firestore else {}
+    listing_data = _find_local_listing(payload.listing_id) or {}
+    listing_is_firestore = False
+    listing_ref = None
     if not listing_data:
-        listing_data = _find_local_listing(payload.listing_id) or {}
+        listing_ref = db.collection("college_food_listings").document(payload.listing_id)
+        listing_doc = None
+        try:
+            listing_doc = listing_ref.get(timeout=_FIRESTORE_READ_TIMEOUT, retry=None)
+        except Exception:
+            listing_doc = None
+        listing_is_firestore = bool(listing_doc is not None and listing_doc.exists)
+        listing_data = (listing_doc.to_dict() or {}) if listing_is_firestore else {}
     if not listing_data:
         raise HTTPException(status_code=404, detail="Listing not found")
 
@@ -1988,8 +2369,13 @@ def create_college_food_request(
     if from_college_key and from_college_key == to_college_key:
         raise HTTPException(status_code=400, detail="You cannot request your own college listing")
 
-
-    if listing_data.get("status") != "approved":
+    source = str(listing_data.get("source", "")).strip().lower()
+    status = str(listing_data.get("status", "")).strip().lower()
+    is_canteen_waste = source == "canteen_waste"
+    if is_canteen_waste:
+        if status in {"rejected", "completed"}:
+            raise HTTPException(status_code=400, detail="Listing is not available anymore")
+    elif status != "approved":
         raise HTTPException(status_code=400, detail="Listing is not approved yet")
 
 
@@ -2011,6 +2397,10 @@ def create_college_food_request(
         "college_to": _user_display_name(user_data),
         "college_to_uid": uid,
         "college_to_key": to_college_key,
+        "preferred_pickup_time": payload.preferred_pickup_time.strip(),
+        "pickup_location_name": str(listing_data.get("pickup_location_name") or COLLEGE_EXCHANGE_PICKUP_HUB_NAME),
+        "pickup_location_address": str(listing_data.get("pickup_location_address") or COLLEGE_EXCHANGE_PICKUP_HUB_ADDRESS),
+        "pickup_map_query": str(listing_data.get("pickup_map_query") or COLLEGE_EXCHANGE_PICKUP_HUB_QUERY),
         "notes": payload.notes.strip(),
         "status": "pending",
         "createdAt": datetime.now(timezone.utc).isoformat(),
@@ -2036,7 +2426,7 @@ def get_college_food_requests(authorization: Optional[str] = Header(default=None
     uid, user_data = _require_role_uid(authorization, {"college"})
     college_key = _resolve_user_college_key(uid, user_data)
     rows = []
-    for data in [*_firestore_docs("college_food_requests"), *_local_food_requests()]:
+    for data in _local_food_requests():
         if (
             data.get("college_to_uid") == uid
             or data.get("college_from_uid") == uid
@@ -2549,6 +2939,26 @@ class UpdateProfileRequest(BaseModel):
     department: Optional[str] = None
     college_name: Optional[str] = None
     college_domains: Optional[List[str]] = None
+
+
+@app.get("/users/profile")
+def get_user_profile(authorization: Optional[str] = Header(default=None)):
+    token = _extract_bearer_token(authorization)
+    try:
+        decoded = firebase_auth.verify_id_token(token)
+    except Exception as exc:
+        raise HTTPException(status_code=401, detail="Invalid Firebase token") from exc
+
+
+    uid = decoded.get("uid")
+    if not uid:
+        raise HTTPException(status_code=401, detail="Invalid token payload")
+
+
+    user_data = _resolve_user_profile(uid, decoded)
+    if user_data is None:
+        raise HTTPException(status_code=404, detail="User profile not found")
+    return {"uid": uid, "profile": user_data}
 
 
 @app.put("/users/profile")

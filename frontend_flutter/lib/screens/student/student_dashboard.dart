@@ -67,15 +67,13 @@ class _StudentDashboardState extends State<StudentDashboard>
       parent: _animationController,
       curve: Curves.easeInOut,
     );
-    _slideAnimation = Tween<Offset>(
-      begin: const Offset(0, 0.08),
-      end: Offset.zero,
-    ).animate(
-      CurvedAnimation(
-        parent: _animationController,
-        curve: Curves.easeOutCubic,
-      ),
-    );
+    _slideAnimation =
+        Tween<Offset>(begin: const Offset(0, 0.08), end: Offset.zero).animate(
+          CurvedAnimation(
+            parent: _animationController,
+            curve: Curves.easeOutCubic,
+          ),
+        );
 
     _animationController.forward();
     _loadStudentData();
@@ -272,7 +270,9 @@ class _StudentDashboardState extends State<StudentDashboard>
       final userDoc = await _firestore.collection('users').doc(user.uid).get();
       final userData = userDoc.data() ?? <String, dynamic>{};
       nextUserData = userData;
-      final livePoints = _readInt(userData['points'] ?? userData['rewardPoints']);
+      final livePoints = _readInt(
+        userData['points'] ?? userData['rewardPoints'],
+      );
       nextRewardPoints = livePoints > cachedPoints ? livePoints : cachedPoints;
     } catch (_) {
       profileLoadFailed = true;
@@ -284,9 +284,10 @@ class _StudentDashboardState extends State<StudentDashboard>
       );
       nextAttendanceStreak = _readInt(attendancePayload['current_streak']);
       nextHasMarkedToday = attendancePayload['has_marked_today'] == true;
-      nextAttendanceRecords = (attendancePayload['records'] as List<dynamic>? ?? const [])
-          .map((item) => Map<String, dynamic>.from(item as Map))
-          .toList();
+      nextAttendanceRecords =
+          (attendancePayload['records'] as List<dynamic>? ?? const [])
+              .map((item) => Map<String, dynamic>.from(item as Map))
+              .toList();
     } catch (_) {
       attendanceLoadFailed = true;
     }
@@ -326,10 +327,7 @@ class _StudentDashboardState extends State<StudentDashboard>
         orders: nextAllOrders,
         attendanceRecords: nextAttendanceRecords,
       );
-      await _campusService.cachePoints(
-        uid: user.uid,
-        points: nextRewardPoints,
-      );
+      await _campusService.cachePoints(uid: user.uid, points: nextRewardPoints);
     }
 
     String? nextLoadMessage;
@@ -418,7 +416,8 @@ class _StudentDashboardState extends State<StudentDashboard>
   }
 
   Widget _buildHeader() {
-    final displayName = (_userData['name']?.toString().trim().isNotEmpty ?? false)
+    final displayName =
+        (_userData['name']?.toString().trim().isNotEmpty ?? false)
         ? _userData['name'].toString().trim()
         : 'Student';
 
@@ -489,10 +488,7 @@ class _StudentDashboardState extends State<StudentDashboard>
               borderRadius: BorderRadius.circular(14),
               border: Border.all(color: const Color(0xFFE2E8F0)),
             ),
-            child: const Icon(
-              Icons.person_rounded,
-              color: Color(0xFF475569),
-            ),
+            child: const Icon(Icons.person_rounded, color: Color(0xFF475569)),
           ),
           onSelected: (value) async {
             if (value == 'profile') {
@@ -676,6 +672,7 @@ class _StudentDashboardState extends State<StudentDashboard>
   }
 
   Widget _buildMetricsGrid(bool isWide, bool isPhone) {
+    final width = MediaQuery.sizeOf(context).width;
     final metrics = [
       _MetricCardData(
         'Total Orders',
@@ -775,10 +772,8 @@ class _StudentDashboardState extends State<StudentDashboard>
                   ? 156
                   : 152,
             ),
-            itemBuilder: (context, index) => _buildMetricCard(
-              metrics[index],
-              isPhone: isPhone,
-            ),
+            itemBuilder: (context, index) =>
+                _buildMetricCard(metrics[index], isPhone: isPhone),
           ),
         ],
       ),
@@ -843,6 +838,7 @@ class _StudentDashboardState extends State<StudentDashboard>
   }
 
   Widget _buildQuickActionsSection(bool isPhone) {
+    final width = MediaQuery.sizeOf(context).width;
     final actions = [
       _QuickActionData(
         'Order Food',
@@ -894,7 +890,8 @@ class _StudentDashboardState extends State<StudentDashboard>
               mainAxisSpacing: 12,
               childAspectRatio: 1.12,
             ),
-            itemBuilder: (context, index) => _buildQuickActionCard(actions[index]),
+            itemBuilder: (context, index) =>
+                _buildQuickActionCard(actions[index]),
           )
         else
           SizedBox(
@@ -903,7 +900,8 @@ class _StudentDashboardState extends State<StudentDashboard>
               scrollDirection: Axis.horizontal,
               itemCount: actions.length,
               separatorBuilder: (_, _) => const SizedBox(width: 14),
-              itemBuilder: (context, index) => _buildQuickActionCard(actions[index]),
+              itemBuilder: (context, index) =>
+                  _buildQuickActionCard(actions[index]),
             ),
           ),
       ],
@@ -1012,10 +1010,7 @@ class _StudentDashboardState extends State<StudentDashboard>
         ),
         const SizedBox(height: 16),
         if (isWide)
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: children,
-          )
+          Row(crossAxisAlignment: CrossAxisAlignment.start, children: children)
         else
           Column(
             children: [
@@ -1073,14 +1068,17 @@ class _StudentDashboardState extends State<StudentDashboard>
           else if (_menuPreview.isEmpty)
             _buildInlineState(
               title: 'No approved menu items are visible yet.',
-              subtitle: 'Once the canteen menu is approved, it will appear here.',
+              subtitle:
+                  'Once the canteen menu is approved, it will appear here.',
               actionLabel: 'Refresh',
               onPressed: _loadStudentData,
             )
           else
             Column(
               children: _menuPreview.map((item) {
-                final category = _titleCase(item['category']?.toString() ?? 'general');
+                final category = _titleCase(
+                  item['category']?.toString() ?? 'general',
+                );
                 final price = _readInt(item['price']);
                 final itemName = item['name']?.toString() ?? 'Menu item';
                 return Container(
@@ -1095,7 +1093,9 @@ class _StudentDashboardState extends State<StudentDashboard>
                       Container(
                         padding: const EdgeInsets.all(10),
                         decoration: BoxDecoration(
-                          color: const Color(0xFF0F766E).withValues(alpha: 0.12),
+                          color: const Color(
+                            0xFF0F766E,
+                          ).withValues(alpha: 0.12),
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: const Icon(
@@ -1217,7 +1217,9 @@ class _StudentDashboardState extends State<StudentDashboard>
                         width: 44,
                         height: 44,
                         decoration: BoxDecoration(
-                          color: const Color(0xFF2563EB).withValues(alpha: 0.12),
+                          color: const Color(
+                            0xFF2563EB,
+                          ).withValues(alpha: 0.12),
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: const Icon(

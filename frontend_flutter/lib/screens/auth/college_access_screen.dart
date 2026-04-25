@@ -1,8 +1,8 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../../services/auth_service.dart';
+import '../../services/campus_service.dart';
 import '../../services/college_exchange_service.dart';
 import '../../services/security_audit_service.dart';
 import '../../utils/password_validator.dart';
@@ -27,6 +27,7 @@ class _CollegeAccessScreenState extends State<CollegeAccessScreen>
   final _phoneController = TextEditingController();
   final _notesController = TextEditingController();
   final AuthService _authService = AuthService();
+  final CampusService _campusService = CampusService();
   final SecurityAuditService _auditService = SecurityAuditService();
   final CollegeExchangeService _collegeExchangeService =
       CollegeExchangeService();
@@ -70,18 +71,12 @@ class _CollegeAccessScreenState extends State<CollegeAccessScreen>
   }
 
   Future<String?> _validateCollegeRole(User user) async {
-    final doc = await FirebaseFirestore.instance
-        .collection('users')
-        .doc(user.uid)
-        .get();
-
-    if (!doc.exists) {
+    final data = await _campusService.getCurrentProfile();
+    if (data == null) {
       return null;
     }
-
-    final data = doc.data();
-    final role = data?['role']?.toString().toLowerCase();
-    final isActive = data?['isActive'];
+    final role = data['role']?.toString().toLowerCase();
+    final isActive = data['isActive'];
     if (isActive is bool && !isActive) {
       return null;
     }
@@ -225,6 +220,230 @@ class _CollegeAccessScreenState extends State<CollegeAccessScreen>
     }
   }
 
+  Future<void> _activateApprovedAccount() async {
+    final emailController = TextEditingController(
+      text: _loginEmailController.text.trim().toLowerCase(),
+    );
+    final passwordController = TextEditingController();
+    final confirmController = TextEditingController();
+    bool obscurePassword = true;
+    bool obscureConfirm = true;
+
+    final payload = await showDialog<Map<String, String>?>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('Activate Approved Account'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      'Use this after admin approval to create your college portal password.',
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: emailController,
+                      keyboardType: TextInputType.emailAddress,
+                      decoration: const InputDecoration(
+                        labelText: 'Approved College Email',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: passwordController,
+                      obscureText: obscurePassword,
+                      decoration: InputDecoration(
+                        labelText: 'New Password',
+                        border: const OutlineInputBorder(),
+                        suffixIcon: IconButton(
+                          onPressed: () {
+                            setDialogState(() {
+                              obscurePassword = !obscurePassword;
+                            });
+                          },
+                          icon: Icon(
+                            obscurePassword
+                                ? Icons.visibility_off_outlined
+                                : Icons.visibility_outlined,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: confirmController,
+                      obscureText: obscureConfirm,
+                      decoration: InputDecoration(
+                        labelText: 'Confirm Password',
+                        border: const OutlineInputBorder(),
+                        suffixIcon: IconButton(
+                          onPressed: () {
+                            setDialogState(() {
+                              obscureConfirm = !obscureConfirm;
+                            });
+                          },
+                          icon: Icon(
+                            obscureConfirm
+                                ? Icons.visibility_off_outlined
+                                : Icons.visibility_outlined,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        PasswordValidator.strongPasswordHint,
+                        style: TextStyle(color: Colors.black54, fontSize: 12),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    Navigator.pop(dialogContext, {
+                      'email': emailController.text.trim().toLowerCase(),
+                      'password': passwordController.text,
+                      'confirm': confirmController.text,
+                    });
+                  },
+                  child: const Text('Activate'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    emailController.dispose();
+    passwordController.dispose();
+    confirmController.dispose();
+
+    if (payload == null) return;
+
+    final email = (payload['email'] ?? '').trim().toLowerCase();
+    final password = payload['password'] ?? '';
+    final confirm = payload['confirm'] ?? '';
+    if (email.isEmpty || !email.contains('@')) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter the approved college email.')),
+      );
+      return;
+    }
+    final passwordValidation = PasswordValidator.validateForCreation(password);
+    if (passwordValidation != null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(passwordValidation)));
+      return;
+    }
+    if (password != confirm) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Passwords do not match.')),
+      );
+      return;
+    }
+
+    setState(() {
+      _isBusy = true;
+    });
+
+    try {
+      final signup = await _collegeExchangeService.getSignupStatus(email);
+      final signupStatus = signup['status']?.toString().toLowerCase() ?? '';
+      if (signupStatus != 'approved') {
+        final message = signupStatus == 'pending'
+            ? 'This college signup is still waiting for admin approval.'
+            : signupStatus == 'rejected'
+                ? 'This college signup was rejected by admin.'
+                : 'This college signup is not approved yet.';
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(message)),
+        );
+        return;
+      }
+
+      User? user;
+      try {
+        user = await _authService.register(email, password);
+      } on FirebaseAuthException catch (e) {
+        if (e.code != 'email-already-in-use') {
+          rethrow;
+        }
+
+        // If the email already has a Firebase account, try signing in with the
+        // same password and attach the approved college role to it.
+        user = await _authService.login(email, password);
+      }
+      if (user == null) {
+        throw Exception('Unable to create or attach the college login.');
+      }
+
+      await _collegeExchangeService.activateApprovedAccount(email: email);
+      await _logAttempt(
+        email: email,
+        success: true,
+        reason: 'Approved college signup activated',
+      );
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('College account activated. You can now use the portal.'),
+        ),
+      );
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const CollegeDashboard()),
+      );
+    } on FirebaseAuthException catch (e) {
+      await _logAttempt(
+        email: email,
+        success: false,
+        reason: 'Activation failed: ${e.code}',
+      );
+      if (!mounted) return;
+      final message = e.code == 'email-already-in-use'
+          ? 'This email already has an account. We tried linking it, but the password did not match. Use Forgot password or a different college email.'
+          : (e.message ?? 'Failed to activate college account.');
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
+    } catch (e) {
+      await _logAttempt(
+        email: email,
+        success: false,
+        reason: 'Activation failed',
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isBusy = false;
+        });
+      }
+    }
+  }
+
   Future<void> _submitSignupRequest() async {
     final collegeName = _collegeNameController.text.trim();
     final contactName = _contactNameController.text.trim();
@@ -305,7 +524,7 @@ class _CollegeAccessScreenState extends State<CollegeAccessScreen>
   @override
   Widget build(BuildContext context) {
     final viewportHeight = MediaQuery.sizeOf(context).height;
-    final tabHeight = viewportHeight < 700 ? 320.0 : 420.0;
+    final tabHeight = viewportHeight < 700 ? 420.0 : 520.0;
 
     return Scaffold(
       backgroundColor: const Color(0xFFF3F7FB),
@@ -422,6 +641,27 @@ class _CollegeAccessScreenState extends State<CollegeAccessScreen>
                                         onPressed: _forgotPassword,
                                         child: const Text('Forgot password?'),
                                       ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    OutlinedButton(
+                                      onPressed: _isBusy
+                                          ? null
+                                          : _activateApprovedAccount,
+                                      style: OutlinedButton.styleFrom(
+                                        minimumSize: const Size.fromHeight(48),
+                                      ),
+                                      child: const Text(
+                                        'Activate Approved Account',
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    const Text(
+                                      'Use this after admin approval if no password has been set yet.',
+                                      style: TextStyle(
+                                        color: Colors.black54,
+                                        fontSize: 12,
+                                      ),
+                                      textAlign: TextAlign.center,
                                     ),
                                   ],
                                 ),

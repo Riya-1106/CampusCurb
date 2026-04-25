@@ -12,6 +12,7 @@ class CampusService {
   static const Duration _attendanceTimeout = Duration(seconds: 6);
   static const Duration _apiTimeout = Duration(milliseconds: 1500);
   static const Duration _orderTimeout = Duration(seconds: 8);
+  static const Duration _profileTimeout = Duration(seconds: 4);
 
   int _readInt(dynamic value, {int fallback = 0}) {
     if (value is int) return value;
@@ -609,6 +610,49 @@ class CampusService {
       // Fall back to Firestore ranking if backend is unavailable.
     }
     return _leaderboardFromFirestore();
+  }
+
+  Future<Map<String, dynamic>?> getCurrentProfile() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      return null;
+    }
+
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .get();
+      final data = doc.data();
+      if (doc.exists && data != null && data.isNotEmpty) {
+        return Map<String, dynamic>.from(data);
+      }
+    } catch (_) {
+      // Fall back to backend profile resolution below.
+    }
+
+    try {
+      final res = await http
+          .get(
+            Uri.parse('$baseUrl/users/profile'),
+            headers: await _authorizedHeaders(),
+          )
+          .timeout(_profileTimeout);
+      if (res.statusCode != 200) {
+        return null;
+      }
+      final decoded = json.decode(res.body);
+      if (decoded is! Map<String, dynamic>) {
+        return null;
+      }
+      final profile = decoded['profile'];
+      if (profile is! Map) {
+        return null;
+      }
+      return Map<String, dynamic>.from(profile);
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<Map<String, dynamic>> updateProfile({

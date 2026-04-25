@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../services/auth_service.dart';
+import '../../services/campus_service.dart';
 import '../../services/security_audit_service.dart';
 import '../student/student_shell.dart';
 import '../canteen/canteen_dashboard.dart';
@@ -21,6 +21,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final AuthService _authService = AuthService();
+  final CampusService _campusService = CampusService();
   final SecurityAuditService _auditService = SecurityAuditService();
   bool _obscurePassword = true;
   String _selectedRole = 'student';
@@ -85,18 +86,12 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<String?> _validateProvisionedRole(User user) async {
-    final doc = await FirebaseFirestore.instance
-        .collection('users')
-        .doc(user.uid)
-        .get();
-
-    if (!doc.exists) {
+    final data = await _campusService.getCurrentProfile();
+    if (data == null) {
       return null;
     }
-
-    final data = doc.data();
-    final role = data?['role']?.toString().toLowerCase();
-    final isActive = data?['isActive'];
+    final role = data['role']?.toString().toLowerCase();
+    final isActive = data['isActive'];
     if (isActive is bool && !isActive) {
       return null;
     }

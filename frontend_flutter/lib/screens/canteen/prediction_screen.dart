@@ -256,10 +256,8 @@ class _PredictionScreenState extends State<PredictionScreen> {
             ),
             items: _timeSlots
                 .map(
-                  (slot) => DropdownMenuItem<String>(
-                    value: slot,
-                    child: Text(slot),
-                  ),
+                  (slot) =>
+                      DropdownMenuItem<String>(value: slot, child: Text(slot)),
                 )
                 .toList(),
             onChanged: (value) async {
@@ -410,7 +408,10 @@ class _PredictionScreenState extends State<PredictionScreen> {
                 ),
               ),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
                 decoration: BoxDecoration(
                   color: confidenceColor.withValues(alpha: 0.10),
                   borderRadius: BorderRadius.circular(999),
@@ -528,6 +529,7 @@ class _PredictionScreenState extends State<PredictionScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final width = MediaQuery.sizeOf(context).width;
     final summary = Map<String, dynamic>.from(
       _data?['summary'] as Map<String, dynamic>? ?? {},
     );
@@ -748,7 +750,8 @@ class _PredictionScreenState extends State<PredictionScreen> {
                       ],
                     ),
                     const SizedBox(height: 18),
-                    if ((_data?['low_confidence_items'] as List<dynamic>? ?? const [])
+                    if ((_data?['low_confidence_items'] as List<dynamic>? ??
+                            const [])
                         .isNotEmpty)
                       Container(
                         padding: const EdgeInsets.all(16),
@@ -765,7 +768,8 @@ class _PredictionScreenState extends State<PredictionScreen> {
                           ),
                         ),
                       ),
-                    if ((_data?['low_confidence_items'] as List<dynamic>? ?? const [])
+                    if ((_data?['low_confidence_items'] as List<dynamic>? ??
+                            const [])
                         .isNotEmpty)
                       const SizedBox(height: 18),
                     ...rows.map(_buildForecastCard),

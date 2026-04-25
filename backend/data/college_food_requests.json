@@ -1,1 +1,46 @@
-[]
+[
+  {
+    "id": "request|waste-canteen-2026-04-24-11-00-13-00-coke-diet|enginerring|1777150570",
+    "listing_id": "waste|canteen-2026-04-24-11-00-13-00-coke-diet",
+    "food_item": "Coke diet",
+    "quantity": 1,
+    "unit": "portions",
+    "college_from": "Campus Curb Canteen",
+    "college_from_uid": "canteen",
+    "college_from_key": "canteen",
+    "college_to": "Thakur",
+    "college_to_uid": "xSwkL96ZgoY1UyvM13Jfzfth3Qh1",
+    "college_to_key": "enginerring",
+    "preferred_pickup_time": "2026-04-24 \u00e2\u0080\u00a2 11:00-13:00",
+    "pickup_location_name": "Campus Curb Main Canteen Gate",
+    "pickup_location_address": "Student campus pickup counter for approved surplus collections.",
+    "pickup_map_query": "Campus Curb Main Canteen Gate",
+    "notes": "Thakur College pickup team will collect this from the canteen gate.",
+    "status": "approved",
+    "createdAt": "2026-04-25T20:56:10.730337+00:00",
+    "reviewedAt": "2026-04-25T21:00:30.763000+00:00",
+    "reviewedBy": "ReFzEsVnc4Wczmfbl5hxBPl8rkQ2"
+  },
+  {
+    "id": "request|waste-canteen-2026-04-24-11-00-13-00-burger|enginerring|1777151729",
+    "listing_id": "waste|canteen-2026-04-24-11-00-13-00-burger",
+    "food_item": "Burger",
+    "quantity": 1,
+    "unit": "portions",
+    "college_from": "Campus Curb Canteen",
+    "college_from_uid": "canteen",
+    "college_from_key": "canteen",
+    "college_to": "Thakur",
+    "college_to_uid": "xSwkL96ZgoY1UyvM13Jfzfth3Qh1",
+    "college_to_key": "enginerring",
+    "preferred_pickup_time": "2026-04-24 \u00e2\u0080\u00a2 11:00-13:00",
+    "pickup_location_name": "Campus Curb Main Canteen Gate",
+    "pickup_location_address": "Student campus pickup counter for approved surplus collections.",
+    "pickup_map_query": "Campus Curb Main Canteen Gate",
+    "notes": "Thakur College pickup team will collect this from the canteen gate.",
+    "status": "approved",
+    "createdAt": "2026-04-25T21:15:29.783040+00:00",
+    "reviewedAt": "2026-04-25T21:16:19.858541+00:00",
+    "reviewedBy": "ReFzEsVnc4Wczmfbl5hxBPl8rkQ2"
+  }
+]

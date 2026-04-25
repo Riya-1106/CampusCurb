@@ -10,8 +10,8 @@ import 'screens/canteen/canteen_dashboard.dart';
 import 'screens/college/college_dashboard.dart';
 import 'screens/faculty/faculty_dashboard.dart';
 import 'screens/admin/admin_dashboard.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'services/notification_service.dart';
+import 'services/campus_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -73,17 +73,16 @@ class RoleBasedRouter extends StatelessWidget {
       return const LoginScreen();
     }
 
-    return FutureBuilder<DocumentSnapshot>(
-      future: FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .get(),
+    return FutureBuilder<Map<String, dynamic>?>(
+      future: CampusService().getCurrentProfile(),
       builder: (context, snapshot) {
-        if (!snapshot.hasData || !snapshot.data!.exists) {
-          return const LoginScreen();
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
         }
 
-        final data = snapshot.data!.data() as Map<String, dynamic>?;
+        final data = snapshot.data;
         if (data == null || !data.containsKey('role')) {
           return const LoginScreen();
         }

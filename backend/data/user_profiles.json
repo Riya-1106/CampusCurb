@@ -1,0 +1,50 @@
+{
+  "ReFzEsVnc4Wczmfbl5hxBPl8rkQ2": {
+    "email": "campuscurb30@gmail.com",
+    "name": "CampusCurb Admin",
+    "role": "admin",
+    "department": "",
+    "points": 0,
+    "isActive": true,
+    "createdAt": "2026-04-25T08:23:41.961724+00:00",
+    "seededBy": "default_admin_fallback",
+    "uid": "ReFzEsVnc4Wczmfbl5hxBPl8rkQ2"
+  },
+  "xSwkL96ZgoY1UyvM13Jfzfth3Qh1": {
+    "name": "Rahul",
+    "email": "thakur@gmail.com",
+    "role": "college",
+    "department": "",
+    "collegeName": "Thakur",
+    "collegeDomains": [
+      "enginerring",
+      "gmail.com"
+    ],
+    "collegeKey": "enginerring",
+    "points": 0,
+    "isActive": true,
+    "provisionedFromSignupRequestId": "signup|thakur-gmail-com|1777104186",
+    "createdAt": "2026-04-25T08:03:06.398285+00:00",
+    "createdBy": "ReFzEsVnc4Wczmfbl5hxBPl8rkQ2",
+    "activatedAt": "2026-04-25T20:32:15.342545+00:00",
+    "uid": "xSwkL96ZgoY1UyvM13Jfzfth3Qh1"
+  },
+  "Kr2VtWhDbfSeSufR60pYi0KYgF52": {
+    "name": "Verifier",
+    "email": "college.flow.verify@example.com",
+    "role": "college",
+    "department": "",
+    "collegeName": "Flow Verify College",
+    "collegeDomains": [
+      "example.com"
+    ],
+    "collegeKey": "example-com",
+    "points": 0,
+    "isActive": true,
+    "provisionedFromSignupRequestId": "signup|college-flow-verify-example-com|1777149523",
+    "createdAt": "2026-04-25T20:38:43.786958+00:00",
+    "createdBy": "ReFzEsVnc4Wczmfbl5hxBPl8rkQ2",
+    "activatedAt": "2026-04-25T20:38:46.833365+00:00",
+    "uid": "Kr2VtWhDbfSeSufR60pYi0KYgF52"
+  }
+}

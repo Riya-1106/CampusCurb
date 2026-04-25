@@ -1,1 +1,47 @@
-[]
+[
+  {
+    "id": "waste|canteen-2026-04-24-11-00-13-00-coke-diet",
+    "source": "canteen_waste",
+    "source_operation_id": "canteen|2026-04-24|11:00-13:00|coke-diet",
+    "created_by": "canteen",
+    "college_key": "canteen",
+    "college_name": "Campus Curb Canteen",
+    "contact_email": "",
+    "food_item": "Coke diet",
+    "quantity": 19,
+    "remaining_quantity": 18,
+    "unit": "portions",
+    "pickup_window": "2026-04-24 \u2022 11:00-13:00",
+    "notes": "Auto-created from canteen waste log for inter-college sharing.",
+    "status": "approved",
+    "createdAt": "2026-04-24T05:25:44.150292+00:00",
+    "reviewedAt": "2026-04-25T08:52:00.499749+00:00",
+    "reviewedBy": "ReFzEsVnc4Wczmfbl5hxBPl8rkQ2",
+    "approvedAt": "2026-04-25T08:52:00.499757+00:00",
+    "lastRequestApprovedAt": "2026-04-25T21:00:30.762292+00:00"
+  },
+  {
+    "id": "waste|canteen-2026-04-24-11-00-13-00-burger",
+    "source": "canteen_waste",
+    "source_operation_id": "canteen|2026-04-24|11:00-13:00|burger",
+    "created_by": "canteen",
+    "college_key": "canteen",
+    "college_name": "Campus Curb Canteen",
+    "contact_email": "",
+    "food_item": "Burger",
+    "quantity": 10,
+    "remaining_quantity": 9,
+    "unit": "portions",
+    "pickup_window": "2026-04-24 \u2022 11:00-13:00",
+    "pickup_location_name": "Campus Curb Main Canteen Gate",
+    "pickup_location_address": "Student campus pickup counter for approved surplus collections.",
+    "pickup_map_query": "Campus Curb Main Canteen Gate",
+    "notes": "Auto-created from canteen waste log for inter-college sharing.",
+    "status": "live",
+    "createdAt": "2026-04-24T05:25:44.149932+00:00",
+    "source_date": "2026-04-24",
+    "source_time_slot": "11:00-13:00",
+    "confidence_label": "High",
+    "lastRequestApprovedAt": "2026-04-25T21:16:19.857110+00:00"
+  }
+]
