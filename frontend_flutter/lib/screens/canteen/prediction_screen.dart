@@ -20,6 +20,8 @@ class _PredictionScreenState extends State<PredictionScreen> {
 
   Map<String, dynamic>? _data;
   bool _loading = true;
+  bool _refreshing = false;
+  String? _errorMessage;
   String _forecastMode = 'today';
   DateTime _customDate = DateTime.now();
   late String _selectedTimeSlot;
@@ -98,7 +100,9 @@ class _PredictionScreenState extends State<PredictionScreen> {
 
   Future<void> _loadDashboard() async {
     setState(() {
-      _loading = true;
+      _loading = _data == null;
+      _refreshing = _data != null;
+      _errorMessage = null;
     });
 
     try {
@@ -110,11 +114,16 @@ class _PredictionScreenState extends State<PredictionScreen> {
       setState(() {
         _data = result;
         _loading = false;
+        _refreshing = false;
       });
-    } catch (_) {
+    } catch (error) {
       if (!mounted) return;
       setState(() {
         _loading = false;
+        _refreshing = false;
+        if (_data == null) {
+          _errorMessage = error.toString().replaceFirst('Exception: ', '');
+        }
       });
     }
   }
@@ -154,7 +163,7 @@ class _PredictionScreenState extends State<PredictionScreen> {
       onTap: onTap,
       borderRadius: BorderRadius.circular(999),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
           color: selected ? const Color(0xFF0F766E) : Colors.white,
           borderRadius: BorderRadius.circular(999),
@@ -168,16 +177,17 @@ class _PredictionScreenState extends State<PredictionScreen> {
             if (icon != null) ...[
               Icon(
                 icon,
-                size: 18,
+                size: 16,
                 color: selected ? Colors.white : const Color(0xFF0F766E),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 6),
             ],
             Text(
               label,
               style: TextStyle(
                 color: selected ? Colors.white : const Color(0xFF0F172A),
                 fontWeight: FontWeight.w800,
+                fontSize: 12,
               ),
             ),
           ],
@@ -188,7 +198,7 @@ class _PredictionScreenState extends State<PredictionScreen> {
 
   Widget _buildForecastSelector() {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(22),
@@ -202,10 +212,10 @@ class _PredictionScreenState extends State<PredictionScreen> {
             style: TextStyle(
               color: Color(0xFF0F172A),
               fontWeight: FontWeight.w800,
-              fontSize: 16,
+              fontSize: 15,
             ),
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 4),
           Text(
             'Showing $_forecastModeLabel forecast for ${_readableDate(_targetDate)} during $_selectedTimeSlot.',
             style: const TextStyle(
@@ -213,7 +223,7 @@ class _PredictionScreenState extends State<PredictionScreen> {
               fontWeight: FontWeight.w600,
             ),
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 10),
           Wrap(
             spacing: 10,
             runSpacing: 10,
@@ -244,7 +254,7 @@ class _PredictionScreenState extends State<PredictionScreen> {
               ),
             ],
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 10),
           DropdownButtonFormField<String>(
             initialValue: _selectedTimeSlot,
             decoration: InputDecoration(
@@ -297,7 +307,7 @@ class _PredictionScreenState extends State<PredictionScreen> {
 
   Widget _summaryChip(String title, String value, Color color) {
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.10),
         borderRadius: BorderRadius.circular(18),
@@ -311,15 +321,19 @@ class _PredictionScreenState extends State<PredictionScreen> {
             style: TextStyle(
               color: color,
               fontWeight: FontWeight.w800,
-              fontSize: 20,
+              fontSize: 18,
             ),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 2),
           Text(
             title,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
             style: const TextStyle(
               color: Color(0xFF475569),
               fontWeight: FontWeight.w600,
+              fontSize: 12,
+              height: 1.2,
             ),
           ),
         ],
@@ -359,8 +373,8 @@ class _PredictionScreenState extends State<PredictionScreen> {
     final trendDirection = item['trend_direction']?.toString() ?? 'stable';
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 14),
-      padding: const EdgeInsets.all(18),
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(24),
@@ -373,7 +387,7 @@ class _PredictionScreenState extends State<PredictionScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Container(
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
                   color: const Color(0xFFEFF6FF),
                   borderRadius: BorderRadius.circular(16),
@@ -383,7 +397,7 @@ class _PredictionScreenState extends State<PredictionScreen> {
                   color: const Color(0xFF2563EB),
                 ),
               ),
-              const SizedBox(width: 14),
+              const SizedBox(width: 10),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -392,11 +406,11 @@ class _PredictionScreenState extends State<PredictionScreen> {
                       item['food_item']?.toString() ?? 'Menu item',
                       style: const TextStyle(
                         color: Color(0xFF0F172A),
-                        fontSize: 18,
+                        fontSize: 16,
                         fontWeight: FontWeight.w800,
                       ),
                     ),
-                    const SizedBox(height: 6),
+                    const SizedBox(height: 4),
                     Text(
                       '${item['food_category'] ?? 'General'} • ${item['time_slot'] ?? ''}',
                       style: const TextStyle(
@@ -409,8 +423,8 @@ class _PredictionScreenState extends State<PredictionScreen> {
               ),
               Container(
                 padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 8,
+                  horizontal: 10,
+                  vertical: 7,
                 ),
                 decoration: BoxDecoration(
                   color: confidenceColor.withValues(alpha: 0.10),
@@ -426,10 +440,10 @@ class _PredictionScreenState extends State<PredictionScreen> {
               ),
             ],
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
           Wrap(
-            spacing: 10,
-            runSpacing: 10,
+            spacing: 8,
+            runSpacing: 8,
             children: [
               _summaryChip(
                 'Predicted demand',
@@ -453,7 +467,7 @@ class _PredictionScreenState extends State<PredictionScreen> {
               ),
             ],
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
           _infoRow(
             'Confidence score',
             '${_toDouble(item['confidence_score']).toStringAsFixed(1)}%',
@@ -475,10 +489,10 @@ class _PredictionScreenState extends State<PredictionScreen> {
             'Weather context',
             '${item['weather_type'] ?? 'Sunny'} • ${_toInt(item['temperature'])}°C',
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.all(14),
+            padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
               color: const Color(0xFFF8FAFC),
               borderRadius: BorderRadius.circular(18),
@@ -493,7 +507,7 @@ class _PredictionScreenState extends State<PredictionScreen> {
                     fontWeight: FontWeight.w800,
                   ),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 6),
                 Text(
                   item['trend_reason']?.toString() ?? 'Demand is stable.',
                   style: const TextStyle(
@@ -501,7 +515,7 @@ class _PredictionScreenState extends State<PredictionScreen> {
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 6),
                 Text(
                   item['confidence_reason']?.toString() ??
                       'Confidence is based on item history, slot support, and demand stability.',
@@ -510,7 +524,7 @@ class _PredictionScreenState extends State<PredictionScreen> {
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 6),
                 Text(
                   item['recommended_action']?.toString() ??
                       'Keep preparation close to the recent average.',
@@ -562,8 +576,19 @@ class _PredictionScreenState extends State<PredictionScreen> {
         foregroundColor: const Color(0xFF0F172A),
         elevation: 0,
         actions: [
+          if (_refreshing)
+            const Padding(
+              padding: EdgeInsets.only(right: 8),
+              child: Center(
+                child: SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ),
+            ),
           IconButton(
-            onPressed: _loadDashboard,
+            onPressed: (_loading || _refreshing) ? null : _loadDashboard,
             icon: const Icon(Icons.refresh_rounded),
           ),
         ],
@@ -572,14 +597,23 @@ class _PredictionScreenState extends State<PredictionScreen> {
         child: _loading
             ? const Center(child: CircularProgressIndicator())
             : _data == null
-            ? const Center(child: Text('Failed to load demand forecast'))
+            ? Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Text(
+                    _errorMessage ??
+                        'Forecast data is taking longer than expected right now. Pull to refresh in a moment.',
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              )
             : RefreshIndicator(
                 onRefresh: _loadDashboard,
                 child: ListView(
-                  padding: const EdgeInsets.fromLTRB(18, 14, 18, 28),
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
                   children: [
                     Container(
-                      padding: const EdgeInsets.all(24),
+                      padding: const EdgeInsets.all(18),
                       decoration: BoxDecoration(
                         gradient: const LinearGradient(
                           colors: [Color(0xFF0F766E), Color(0xFF2563EB)],
@@ -593,8 +627,8 @@ class _PredictionScreenState extends State<PredictionScreen> {
                         children: [
                           Container(
                             padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 8,
+                              horizontal: 10,
+                              vertical: 7,
                             ),
                             decoration: BoxDecoration(
                               color: Colors.white.withValues(alpha: 0.12),
@@ -608,17 +642,17 @@ class _PredictionScreenState extends State<PredictionScreen> {
                               ),
                             ),
                           ),
-                          const SizedBox(height: 16),
+                          const SizedBox(height: 12),
                           const Text(
                             'Use live demand forecasting to prepare smarter, reduce stockouts, and limit waste.',
                             style: TextStyle(
                               color: Colors.white,
-                              fontSize: 28,
+                              fontSize: 20,
                               fontWeight: FontWeight.w800,
-                              height: 1.2,
+                              height: 1.15,
                             ),
                           ),
-                          const SizedBox(height: 10),
+                          const SizedBox(height: 8),
                           Text(
                             _data?['formula']?.toString() ??
                                 'Predicted demand + safety margin',
@@ -628,7 +662,7 @@ class _PredictionScreenState extends State<PredictionScreen> {
                             ),
                           ),
                           if (activeMenuNames.isNotEmpty) ...[
-                            const SizedBox(height: 12),
+                            const SizedBox(height: 10),
                             Text(
                               'Forecast basis: ${activeMenuNames.length} active menu items',
                               style: const TextStyle(
@@ -640,12 +674,12 @@ class _PredictionScreenState extends State<PredictionScreen> {
                         ],
                       ),
                     ),
-                    const SizedBox(height: 18),
+                    const SizedBox(height: 14),
                     _buildForecastSelector(),
-                    const SizedBox(height: 18),
+                    const SizedBox(height: 14),
                     if (activeMenuNames.isNotEmpty)
                       Container(
-                        padding: const EdgeInsets.all(16),
+                        padding: const EdgeInsets.all(14),
                         decoration: BoxDecoration(
                           color: Colors.white,
                           borderRadius: BorderRadius.circular(22),
@@ -659,10 +693,10 @@ class _PredictionScreenState extends State<PredictionScreen> {
                               style: TextStyle(
                                 color: Color(0xFF0F172A),
                                 fontWeight: FontWeight.w800,
-                                fontSize: 16,
+                                fontSize: 15,
                               ),
                             ),
-                            const SizedBox(height: 6),
+                            const SizedBox(height: 4),
                             const Text(
                               'These are the current menu items the forecasting engine is using.',
                               style: TextStyle(
@@ -670,18 +704,18 @@ class _PredictionScreenState extends State<PredictionScreen> {
                                 fontWeight: FontWeight.w600,
                               ),
                             ),
-                            const SizedBox(height: 14),
+                            const SizedBox(height: 10),
                             Wrap(
-                              spacing: 10,
-                              runSpacing: 10,
+                              spacing: 8,
+                              runSpacing: 8,
                               children: activeMenuItems.map((item) {
                                 final price = _toInt(item['price']);
                                 final category =
                                     item['category']?.toString() ?? 'general';
                                 return Container(
                                   padding: const EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 10,
+                                    horizontal: 10,
+                                    vertical: 8,
                                   ),
                                   decoration: BoxDecoration(
                                     color: const Color(0xFFF8FAFC),
@@ -702,7 +736,7 @@ class _PredictionScreenState extends State<PredictionScreen> {
                                           fontWeight: FontWeight.w800,
                                         ),
                                       ),
-                                      const SizedBox(height: 4),
+                                      const SizedBox(height: 2),
                                       Text(
                                         '${category.toUpperCase()} • Rs.$price',
                                         style: const TextStyle(
@@ -718,14 +752,14 @@ class _PredictionScreenState extends State<PredictionScreen> {
                           ],
                         ),
                       ),
-                    if (activeMenuNames.isNotEmpty) const SizedBox(height: 18),
+                    if (activeMenuNames.isNotEmpty) const SizedBox(height: 14),
                     GridView.count(
                       shrinkWrap: true,
                       physics: const NeverScrollableScrollPhysics(),
                       crossAxisCount: width < 600 ? 1 : (width > 900 ? 4 : 2),
-                      crossAxisSpacing: 12,
-                      mainAxisSpacing: 12,
-                      childAspectRatio: 1.25,
+                      crossAxisSpacing: 10,
+                      mainAxisSpacing: 10,
+                      mainAxisExtent: width < 600 ? 84 : 96,
                       children: [
                         _summaryChip(
                           'Items forecasted',
@@ -749,12 +783,12 @@ class _PredictionScreenState extends State<PredictionScreen> {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 18),
+                    const SizedBox(height: 14),
                     if ((_data?['low_confidence_items'] as List<dynamic>? ??
                             const [])
                         .isNotEmpty)
                       Container(
-                        padding: const EdgeInsets.all(16),
+                        padding: const EdgeInsets.all(14),
                         decoration: BoxDecoration(
                           color: const Color(0xFFFFF7ED),
                           borderRadius: BorderRadius.circular(18),

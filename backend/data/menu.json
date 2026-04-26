@@ -1,27 +1,15 @@
 [
   {
-    "id": "1",
+    "id": "m1",
     "name": "Veg Wrap",
     "price": 80,
-    "category": "fastfood"
+    "category": "sandwich"
   },
   {
-    "id": "2",
-    "name": "Masala Dosa",
-    "price": 50,
-    "category": "breakfast"
-  },
-  {
-    "id": "3",
-    "name": "Cheese Pizza",
-    "price": 120,
-    "category": "meal"
-  },
-  {
-    "id": "4",
-    "name": "Idli",
-    "price": 30,
-    "category": "breakfast"
+    "id": "codex-approval-smoke-test",
+    "name": "Codex Approval Smoke Test",
+    "price": 99,
+    "category": "testing"
   },
   {
     "id": "5",
@@ -32,12 +20,6 @@
   {
     "id": "6",
     "name": "Tea",
-    "price": 63,
-    "category": "beverage"
-  },
-  {
-    "id": "7",
-    "name": "Milk",
     "price": 63,
     "category": "beverage"
   },

@@ -13,6 +13,8 @@ class _WasteScreenState extends State<WasteScreen> {
   final PredictionService _service = PredictionService();
   Map<String, dynamic>? data;
   bool loading = true;
+  bool refreshing = false;
+  String? errorMessage;
 
   @override
   void initState() {
@@ -21,22 +23,34 @@ class _WasteScreenState extends State<WasteScreen> {
   }
 
   Future<void> fetchWasteReport() async {
+    setState(() {
+      loading = data == null;
+      refreshing = data != null;
+      errorMessage = null;
+    });
     try {
       final result = await _service.getWasteReport();
+      if (!mounted) return;
       setState(() {
         data = result;
         loading = false;
+        refreshing = false;
       });
-    } catch (_) {
+    } catch (error) {
+      if (!mounted) return;
       setState(() {
         loading = false;
+        refreshing = false;
+        if (data == null) {
+          errorMessage = error.toString().replaceFirst('Exception: ', '');
+        }
       });
     }
   }
 
   Widget _headerPill(String label, IconData icon) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.14),
         borderRadius: BorderRadius.circular(999),
@@ -45,13 +59,14 @@ class _WasteScreenState extends State<WasteScreen> {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 18, color: Colors.white),
-          const SizedBox(width: 8),
+          Icon(icon, size: 16, color: Colors.white),
+          const SizedBox(width: 6),
           Text(
             label,
             style: const TextStyle(
               color: Colors.white,
               fontWeight: FontWeight.w700,
+              fontSize: 12,
             ),
           ),
         ],
@@ -61,7 +76,7 @@ class _WasteScreenState extends State<WasteScreen> {
 
   Widget _metricTile(String title, String value, IconData icon, Color color) {
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
@@ -96,20 +111,20 @@ class _WasteScreenState extends State<WasteScreen> {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
-                    fontSize: 13,
+                    fontSize: 12,
                     fontWeight: FontWeight.w700,
                     color: Color(0xFF475569),
                   ),
                 ),
-                const SizedBox(height: 6),
-                Text(
-                  value,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.w800,
-                    color: color,
+                  const SizedBox(height: 2),
+                  Text(
+                    value,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                      color: color,
                   ),
                 ),
               ],
@@ -122,7 +137,7 @@ class _WasteScreenState extends State<WasteScreen> {
 
   Widget _insightCard(String title, String subtitle, String value, IconData icon) {
     return Container(
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(22),
         gradient: const LinearGradient(
@@ -145,11 +160,11 @@ class _WasteScreenState extends State<WasteScreen> {
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
               color: Colors.white.withValues(alpha: 0.16),
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(14),
             ),
-            child: Icon(icon, color: Colors.white, size: 24),
+            child: Icon(icon, color: Colors.white, size: 20),
           ),
-          const SizedBox(width: 14),
+          const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -158,11 +173,11 @@ class _WasteScreenState extends State<WasteScreen> {
                   title,
                   style: const TextStyle(
                     color: Colors.white,
-                    fontSize: 18,
+                    fontSize: 16,
                     fontWeight: FontWeight.w800,
                   ),
                 ),
-                const SizedBox(height: 6),
+                const SizedBox(height: 4),
                 Text(
                   subtitle,
                   style: const TextStyle(
@@ -171,12 +186,12 @@ class _WasteScreenState extends State<WasteScreen> {
                     height: 1.35,
                   ),
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 10),
                 Text(
                   value,
                   style: const TextStyle(
                     color: Colors.white,
-                    fontSize: 24,
+                    fontSize: 20,
                     fontWeight: FontWeight.w800,
                   ),
                 ),
@@ -212,19 +227,38 @@ class _WasteScreenState extends State<WasteScreen> {
           fontWeight: FontWeight.w800,
         ),
         iconTheme: const IconThemeData(color: Color(0xFF0F172A)),
+        actions: [
+          if (refreshing)
+            const Padding(
+              padding: EdgeInsets.only(right: 8),
+              child: Center(
+                child: SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ),
+            ),
+          IconButton(
+            onPressed: (loading || refreshing) ? null : fetchWasteReport,
+            icon: const Icon(Icons.refresh_rounded),
+          ),
+        ],
       ),
 
       body: SafeArea(
         child: loading
             ? const Center(child: CircularProgressIndicator())
             : data == null
-                  ? const Center(child: Text("Failed to load waste report"))
+                  ? Center(
+                      child: Text(errorMessage ?? "Failed to load waste report"),
+                    )
                   : SingleChildScrollView(
                 child: Column(
                   children: [
                     Container(
-                      margin: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-                      padding: const EdgeInsets.all(22),
+                      margin: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+                      padding: const EdgeInsets.all(18),
                       decoration: BoxDecoration(
                         gradient: const LinearGradient(
                           colors: [Color(0xFF0F766E), Color(0xFF2563EB)],
@@ -234,7 +268,7 @@ class _WasteScreenState extends State<WasteScreen> {
                         borderRadius: BorderRadius.circular(28),
                         boxShadow: [
                           BoxShadow(
-                            color: const Color(0xFF2563EB).withValues(alpha: 0.16),
+                            color: const Color(0xFF2563EB).withValues(alpha: 0.14),
                             blurRadius: 24,
                             offset: const Offset(0, 14),
                           ),
@@ -246,18 +280,18 @@ class _WasteScreenState extends State<WasteScreen> {
                           Row(
                             children: [
                               Container(
-                                padding: const EdgeInsets.all(12),
+                                padding: const EdgeInsets.all(10),
                                 decoration: BoxDecoration(
                                   color: Colors.white.withValues(alpha: 0.16),
-                                  borderRadius: BorderRadius.circular(16),
+                                  borderRadius: BorderRadius.circular(14),
                                 ),
                                 child: const Icon(
                                   Icons.delete_outline,
-                                  size: 28,
+                                  size: 22,
                                   color: Colors.white,
                                 ),
                               ),
-                              const SizedBox(width: 14),
+                              const SizedBox(width: 12),
                               const Expanded(
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -265,18 +299,18 @@ class _WasteScreenState extends State<WasteScreen> {
                                     Text(
                                       "Waste Reduction Report",
                                       style: TextStyle(
-                                        fontSize: 24,
+                                        fontSize: 20,
                                         fontWeight: FontWeight.w800,
                                         color: Colors.white,
                                       ),
                                     ),
-                                    SizedBox(height: 6),
+                                    SizedBox(height: 4),
                                     Text(
                                       "Track waste, compare output, and tighten prep planning.",
                                       style: TextStyle(
-                                        fontSize: 14,
+                                        fontSize: 13,
                                         color: Colors.white70,
-                                        height: 1.35,
+                                        height: 1.25,
                                       ),
                                     ),
                                   ],
@@ -284,10 +318,10 @@ class _WasteScreenState extends State<WasteScreen> {
                               ),
                             ],
                           ),
-                          const SizedBox(height: 18),
+                          const SizedBox(height: 12),
                           Wrap(
-                            spacing: 10,
-                            runSpacing: 10,
+                            spacing: 8,
+                            runSpacing: 8,
                             children: [
                               _headerPill('Prepared / sold / wasted', Icons.summarize_rounded),
                               _headerPill('ML reduction insight', Icons.trending_down_rounded),
@@ -297,7 +331,7 @@ class _WasteScreenState extends State<WasteScreen> {
                       ),
                     ),
 
-                    const SizedBox(height: 18),
+                    const SizedBox(height: 14),
 
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -307,7 +341,7 @@ class _WasteScreenState extends State<WasteScreen> {
                         crossAxisCount: width < 600 ? 1 : (isWide ? 4 : 2),
                         crossAxisSpacing: 12,
                         mainAxisSpacing: 12,
-                        mainAxisExtent: 104,
+                        mainAxisExtent: width < 600 ? 84 : 96,
                         children: [
                           _metricTile(
                             "Total Prepared",
@@ -337,7 +371,7 @@ class _WasteScreenState extends State<WasteScreen> {
                       ),
                     ),
 
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 14),
 
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -349,7 +383,7 @@ class _WasteScreenState extends State<WasteScreen> {
                       ),
                     ),
 
-                    const SizedBox(height: 18),
+                    const SizedBox(height: 14),
                   ],
                 ),
               ),

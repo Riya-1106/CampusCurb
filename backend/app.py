@@ -10,9 +10,10 @@ import re
 import secrets
 import string
 import threading
+import time
 from pathlib import Path
 from typing import List, Dict, Optional, Any
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 
 from firebase_admin import auth as firebase_auth
@@ -66,10 +67,87 @@ app.add_middleware(
 )
 
 
+def _parse_iso_datetime(value: Any) -> datetime | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+
+def _should_run_auto_retrain(status: dict[str, Any]) -> bool:
+    if str(status.get("status") or "").lower() == "running":
+        return False
+
+    last_completed = _parse_iso_datetime(status.get("last_completed_at"))
+    if last_completed is None:
+        return True
+
+    if last_completed.tzinfo is None:
+        last_completed = last_completed.replace(tzinfo=timezone.utc)
+    now = datetime.now(timezone.utc)
+    elapsed_hours = (now - last_completed.astimezone(timezone.utc)).total_seconds() / 3600
+    return elapsed_hours >= AUTO_RETRAIN_INTERVAL_HOURS
+
+
+def _auto_retrain_loop() -> None:
+    while True:
+        try:
+            status = get_training_status()
+            if _should_run_auto_retrain(status):
+                with _AUTO_RETRAIN_LOCK:
+                    refreshed_status = get_training_status()
+                    if _should_run_auto_retrain(refreshed_status):
+                        run_training_cycle(trigger="auto_scheduler")
+        except Exception:
+            pass
+        time.sleep(AUTO_RETRAIN_CHECK_SECONDS)
+
+
+@app.on_event("startup")
+def start_auto_retraining_worker() -> None:
+    global _AUTO_RETRAIN_THREAD_STARTED
+    if not AUTO_RETRAIN_ENABLED or _AUTO_RETRAIN_THREAD_STARTED:
+        return
+
+    worker = threading.Thread(
+        target=_auto_retrain_loop,
+        name="auto-retrain-worker",
+        daemon=True,
+    )
+    worker.start()
+    _AUTO_RETRAIN_THREAD_STARTED = True
+
+
 def _extract_bearer_token(authorization: Optional[str]) -> str:
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing or invalid auth token")
     return authorization.split(" ", 1)[1].strip()
+
+
+def _cached_response(cache_key: str, ttl_seconds: int, builder):
+    now = datetime.now(timezone.utc)
+    cached_entry = _API_CACHE.get(cache_key)
+    if cached_entry:
+        expires_at = cached_entry.get("expires_at")
+        payload = cached_entry.get("payload")
+        if isinstance(expires_at, datetime) and expires_at > now and payload is not None:
+            return payload
+
+    payload = builder()
+    _API_CACHE[cache_key] = {
+        "expires_at": now + timedelta(seconds=ttl_seconds),
+        "payload": payload,
+    }
+    return payload
+
+
+def _invalidate_cache_prefix(prefix: str) -> None:
+    keys_to_remove = [key for key in _API_CACHE if key.startswith(prefix)]
+    for key in keys_to_remove:
+        _API_CACHE.pop(key, None)
 
 
 _FIRESTORE_READ_TIMEOUT = 3
@@ -86,6 +164,30 @@ COLLEGE_EXCHANGE_PICKUP_HUB_QUERY = os.getenv(
     "COLLEGE_EXCHANGE_PICKUP_HUB_QUERY",
     COLLEGE_EXCHANGE_PICKUP_HUB_NAME,
 ).strip()
+AUTO_RETRAIN_ENABLED = os.getenv("AUTO_RETRAIN_ENABLED", "true").strip().lower() not in {
+    "0",
+    "false",
+    "no",
+}
+AUTO_RETRAIN_INTERVAL_HOURS = max(
+    int(os.getenv("AUTO_RETRAIN_INTERVAL_HOURS", "168") or 168),
+    1,
+)
+AUTO_RETRAIN_CHECK_SECONDS = max(
+    int(os.getenv("AUTO_RETRAIN_CHECK_SECONDS", "1800") or 1800),
+    60,
+)
+_AUTO_RETRAIN_THREAD_STARTED = False
+_AUTO_RETRAIN_LOCK = threading.Lock()
+FACULTY_CACHE_TTL_SECONDS = max(
+    int(os.getenv("FACULTY_CACHE_TTL_SECONDS", "20") or 20),
+    5,
+)
+ANALYTICS_CACHE_TTL_SECONDS = max(
+    int(os.getenv("ANALYTICS_CACHE_TTL_SECONDS", "25") or 25),
+    5,
+)
+_API_CACHE: dict[str, dict[str, Any]] = {}
 
 
 
@@ -160,9 +262,33 @@ def _require_role_uid(authorization: Optional[str], allowed_roles: set[str]) -> 
 
 def _resolve_canteen_request(authorization: Optional[str]) -> tuple[str, Dict[str, Any]]:
     try:
-        return _require_role_uid(authorization, {"canteen", "admin"})
+        token = _extract_bearer_token(authorization)
+        decoded = firebase_auth.verify_id_token(token)
+        uid = str(decoded.get("uid") or "").strip()
+        if not uid:
+            raise HTTPException(status_code=401, detail="Invalid token payload")
+
+        local_profile = _find_local_user_profile(
+            uid,
+            email=_normalize_email(decoded.get("email")),
+        )
+        if local_profile is not None:
+            role = str(local_profile.get("role") or "").strip().lower()
+            if role in {"canteen", "admin"}:
+                return uid, local_profile
+
+        fallback_profile = {
+            "uid": uid,
+            "email": _normalize_email(decoded.get("email")),
+            "name": decoded.get("name") or "Canteen Operator",
+            "role": "canteen",
+            "isActive": True,
+            "seededBy": "canteen_request_fallback",
+        }
+        _save_local_user_profile(uid, fallback_profile)
+        return uid, fallback_profile
     except Exception:
-        return "canteen", {"role": "canteen"}
+        return "canteen", {"role": "canteen", "isActive": True}
 
 
 
@@ -667,24 +793,62 @@ def menu_analysis():
 
 @app.get("/student-analytics")
 def analytics():
+    def build_payload():
+        from student_analytics import student_behavior
+        try:
+            return student_behavior()
+        except Exception as exc:
+            return {
+                "most_popular_food": {},
+                "most_ordered_food": {"name": "N/A", "orders": 0},
+                "food_rankings": [],
+                "peak_order_time": None,
+                "peak_order_time_details": {"slot": None, "orders": 0},
+                "veg_preference": "0.0%",
+                "veg_vs_non_veg_ratio": {
+                    "veg_count": 0,
+                    "non_veg_count": 0,
+                    "veg_percentage": 0.0,
+                    "non_veg_percentage": 0.0,
+                    "display": "N/A",
+                },
+                "top_students": {},
+                "top_students_list": [],
+                "total_orders": 0,
+                "note": f"Student analytics is temporarily unavailable: {str(exc)}",
+            }
 
-
-    from student_analytics import student_behavior
-
-
-    return student_behavior()
+    return _cached_response(
+        "analytics:student_behavior",
+        ANALYTICS_CACHE_TTL_SECONDS,
+        build_payload,
+    )
 
 
 
 
 @app.get("/prediction-accuracy")
 def prediction_accuracy():
+    def build_payload():
+        from student_analytics import prediction_accuracy_summary
+        try:
+            return prediction_accuracy_summary()
+        except Exception as exc:
+            return {
+                "overall_accuracy_percentage": 0.0,
+                "total_predictions": 0,
+                "resolved_predictions": 0,
+                "pending_predictions": 0,
+                "recent_logs": [],
+                "accuracy_by_food": [],
+                "note": f"Prediction accuracy is temporarily unavailable: {str(exc)}",
+            }
 
-
-    from student_analytics import prediction_accuracy_summary
-
-
-    return prediction_accuracy_summary()
+    return _cached_response(
+        "analytics:prediction_accuracy",
+        ANALYTICS_CACHE_TTL_SECONDS,
+        build_payload,
+    )
 
 
 # ==========================================
@@ -725,27 +889,31 @@ def waste():
 
 @app.get("/waste-report")
 def waste_report():
+    def build_payload():
+        report = waste_analysis()
+        if "error" in report:
+            return report
 
+        return {
+            "Total Prepared": report.get("total_food_prepared", 0),
+            "Total Sold": report.get("total_food_sold", 0),
+            "Total Wasted": report.get("total_food_wasted", 0),
+            "Waste Percentage": f"{int(round(report.get('waste_percentage', 0)))}%",
+            "Estimated ML Waste Reduction": int(round(report.get("estimated_reduction", 0))),
+            "Resolved ML Predictions": int(report.get("prediction_count_used", 0)),
+            "Waste Baseline": int(report.get("baseline_waste", report.get("total_food_wasted", 0))),
+            "Waste After ML": int(report.get("estimated_waste_after_ml", report.get("total_food_wasted", 0))),
+            "Sell Through Percentage": f"{int(round(report.get('sell_through_percentage', 0)))}%",
+            "Item Waste Breakdown": report.get("item_waste_breakdown", []),
+            "Waste Reduction Trend": build_waste_reduction_trend(),
+            "Note": report.get("note", ""),
+        }
 
-    report = waste_analysis()
-    if "error" in report:
-        return report
-
-
-    return {
-        "Total Prepared": report.get("total_food_prepared", 0),
-        "Total Sold": report.get("total_food_sold", 0),
-        "Total Wasted": report.get("total_food_wasted", 0),
-        "Waste Percentage": f"{int(round(report.get('waste_percentage', 0)))}%",
-        "Estimated ML Waste Reduction": int(round(report.get("estimated_reduction", 0))),
-        "Resolved ML Predictions": int(report.get("prediction_count_used", 0)),
-        "Waste Baseline": int(report.get("baseline_waste", report.get("total_food_wasted", 0))),
-        "Waste After ML": int(report.get("estimated_waste_after_ml", report.get("total_food_wasted", 0))),
-        "Sell Through Percentage": f"{int(round(report.get('sell_through_percentage', 0)))}%",
-        "Item Waste Breakdown": report.get("item_waste_breakdown", []),
-        "Waste Reduction Trend": build_waste_reduction_trend(),
-        "Note": report.get("note", ""),
-    }
+    return _cached_response(
+        "analytics:waste_report",
+        ANALYTICS_CACHE_TTL_SECONDS,
+        build_payload,
+    )
 
 
 
@@ -774,15 +942,24 @@ def demand_dashboard(
     target_date: Optional[str] = None,
     time_slot: Optional[str] = None,
 ):
-    return demand_dashboard_data(
-        target_date=target_date,
-        time_slot=time_slot,
+    cache_key = f"demand_dashboard:{target_date or 'today'}:{time_slot or 'default'}"
+    return _cached_response(
+        cache_key,
+        ANALYTICS_CACHE_TTL_SECONDS,
+        lambda: demand_dashboard_data(
+            target_date=target_date,
+            time_slot=time_slot,
+        ),
     )
 
 
 @app.get("/ml/overview")
 def ml_overview():
-    return get_ml_overview()
+    return _cached_response(
+        "analytics:ml_overview",
+        ANALYTICS_CACHE_TTL_SECONDS,
+        get_ml_overview,
+    )
 
 
 @app.get("/ml/training-status")
@@ -809,29 +986,17 @@ USER_PROFILES_FILE = DATA_DIR / "user_profiles.json"
 
 MENU_MASTER = DATA_DIR / "menu.json"
 ORDERS_FILE = DATA_DIR / "orders.json"
+FACULTY_ORDERS_FILE = DATA_DIR / "faculty_orders.json"
 ATTENDANCE_FILE = DATA_DIR / "attendance.json"
+ATTENDANCE_INTENTS_FILE = DATA_DIR / "attendance_intents.json"
 OPERATIONS_FILE = DATA_DIR / "canteen_operations.json"
 POINTS_CACHE_FILE = DATA_DIR / "user_points_cache.json"
+PICKUP_QUEUE_FILE = DATA_DIR / "pickup_queue_status.json"
 
 
-DEFAULT_MENU_PENDING = [
-    {
-        "id": "m1",
-        "name": "Veg Wrap",
-        "price": 80,
-        "category": "sandwich",
-        "requestedBy": "canteen123",
-        "createdAt": "2026-03-14T08:00:00Z"
-    },
-    {
-        "id": "m2",
-        "name": "Masala Dosa",
-        "price": 50,
-        "category": "breakfast",
-        "requestedBy": "canteen123",
-        "createdAt": "2026-03-14T08:20:00Z"
-    }
-]
+DEFAULT_MENU_PENDING = []
+DEFAULT_FACULTY_ORDERS = []
+DEFAULT_PICKUP_QUEUE = []
 
 
 DEFAULT_EXCHANGE_REQUESTS = [
@@ -857,14 +1022,19 @@ DEFAULT_USER_PROFILES = {}
 
 
 DEFAULT_MENU = [
-    {"id": "1", "name": "Veg Wrap", "price": 80},
-    {"id": "2", "name": "Masala Dosa", "price": 50},
-    {"id": "3", "name": "Cheese Pizza", "price": 120},
+    {"id": "5", "name": "Coffee", "price": 66, "category": "beverage"},
+    {"id": "6", "name": "Tea", "price": 63, "category": "beverage"},
+    {"id": "8", "name": "Sandwich", "price": 66, "category": "fastfood"},
+    {"id": "9", "name": "Noodles", "price": 64, "category": "fastfood"},
+    {"id": "10", "name": "Burger", "price": 68, "category": "fastfood"},
+    {"id": "11", "name": "Pasta", "price": 67, "category": "fastfood"},
+    {"id": "12", "name": "Coke diet", "price": 40, "category": "beverage"},
 ]
 
 
 DEFAULT_ORDERS = []
 DEFAULT_ATTENDANCE = []
+DEFAULT_ATTENDANCE_INTENTS = []
 DEFAULT_OPERATIONS = []
 DEFAULT_POINTS_CACHE = {}
 LOGIN_ATTEMPTS_FILE = DATA_DIR / "auth_login_attempts.json"
@@ -889,6 +1059,249 @@ def load_data(path: Path, default):
 
 def save_data(path: Path, payload):
     path.write_text(json.dumps(payload, indent=2))
+
+
+def _load_faculty_orders_local() -> List[Dict[str, Any]]:
+    rows = load_data(FACULTY_ORDERS_FILE, DEFAULT_FACULTY_ORDERS)
+    normalized_rows: List[Dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        items = row.get("items", [])
+        normalized_rows.append(
+            {
+                "order_id": str(row.get("order_id") or row.get("id") or "").strip(),
+                "faculty_id": str(row.get("faculty_id", "")).strip(),
+                "items": items if isinstance(items, list) else [],
+                "total_amount": _safe_int(row.get("total_amount"), 0),
+                "payment_status": str(row.get("payment_status") or "pending").strip().lower() or "pending",
+                "date": row.get("date"),
+                "createdAt": row.get("createdAt"),
+                "order_token": row.get("order_token"),
+                "pickup_status": str(row.get("pickup_status") or "pending").strip().lower() or "pending",
+                "source": "local",
+            }
+        )
+    return normalized_rows
+
+
+def _save_faculty_orders_local(rows: List[Dict[str, Any]]) -> None:
+    save_data(FACULTY_ORDERS_FILE, rows)
+
+
+def _load_pickup_queue_statuses() -> List[Dict[str, Any]]:
+    rows = load_data(PICKUP_QUEUE_FILE, DEFAULT_PICKUP_QUEUE)
+    normalized_rows: List[Dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        normalized_rows.append(
+            {
+                "entry_key": str(row.get("entry_key") or "").strip(),
+                "order_token": str(row.get("order_token") or "").strip(),
+                "order_id": str(row.get("order_id") or "").strip(),
+                "source": str(row.get("source") or "").strip().lower() or "student",
+                "pickup_status": str(row.get("pickup_status") or "pending").strip().lower() or "pending",
+                "updatedAt": row.get("updatedAt"),
+            }
+        )
+    return normalized_rows
+
+
+def _save_pickup_queue_statuses(rows: List[Dict[str, Any]]) -> None:
+    save_data(PICKUP_QUEUE_FILE, rows)
+
+
+def _pickup_entry_key(source: str, order_id: str, order_token: str) -> str:
+    normalized_source = str(source or "student").strip().lower() or "student"
+    normalized_order_id = str(order_id or "").strip()
+    normalized_token = str(order_token or "").strip()
+    identifier = normalized_token or normalized_order_id
+    return f"{normalized_source}:{identifier}"
+
+
+def _pickup_status_map() -> Dict[str, Dict[str, Any]]:
+    return {
+        row["entry_key"]: row
+        for row in _load_pickup_queue_statuses()
+        if str(row.get("entry_key") or "").strip()
+    }
+
+
+def _sync_menu_item_to_firestore(item_id: str, payload: Dict[str, Any]) -> None:
+    try:
+        db.collection("menu").document(item_id).set(payload, merge=True)
+    except Exception:
+        pass
+
+
+def _sync_menu_pending_status_to_firestore(
+    item_id: str,
+    payload: Dict[str, Any],
+    *,
+    delete_after: bool = False,
+) -> None:
+    try:
+        ref = db.collection("menu_pending").document(item_id)
+        ref.set(payload, merge=True)
+        if delete_after:
+            ref.delete()
+    except Exception:
+        pass
+
+
+def _merge_faculty_orders(
+    local_rows: List[Dict[str, Any]],
+    remote_rows: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    merged_by_id: Dict[str, Dict[str, Any]] = {}
+    for row in local_rows + remote_rows:
+        order_id = str(row.get("order_id") or row.get("id") or "").strip()
+        if not order_id:
+            continue
+        merged_by_id[order_id] = {
+            **merged_by_id.get(order_id, {}),
+            **row,
+            "order_id": order_id,
+        }
+    merged_rows = list(merged_by_id.values())
+    merged_rows.sort(
+        key=lambda row: str(row.get("createdAt") or row.get("date") or ""),
+        reverse=True,
+    )
+    return merged_rows
+
+
+def _local_faculty_orders_for_user(
+    faculty_id: str,
+    status: str = "pending",
+) -> List[Dict[str, Any]]:
+    normalized_faculty_id = str(faculty_id or "").strip()
+    normalized_status = str(status or "").strip().lower()
+    rows = []
+    for row in _load_faculty_orders_local():
+        if row.get("faculty_id") != normalized_faculty_id:
+            continue
+        if normalized_status and str(row.get("payment_status") or "").strip().lower() != normalized_status:
+            continue
+        rows.append(row)
+    rows.sort(
+        key=lambda row: str(row.get("createdAt") or row.get("date") or ""),
+        reverse=True,
+    )
+    return rows
+
+
+def _collect_faculty_pending_local(days: int) -> Dict[str, Dict]:
+    now = datetime.now(timezone.utc)
+    by_faculty: Dict[str, Dict] = {}
+    for row in _load_faculty_orders_local():
+        if row.get("payment_status") != "pending":
+            continue
+        created_raw = row.get("createdAt")
+        include = True
+        if created_raw:
+            try:
+                created_dt = datetime.fromisoformat(str(created_raw).replace("Z", "+00:00"))
+                include = (now - created_dt).days < days
+            except Exception:
+                include = True
+        if not include:
+            continue
+        faculty_id = row.get("faculty_id")
+        if not faculty_id:
+            continue
+        entry = by_faculty.setdefault(faculty_id, {"total": 0, "order_ids": []})
+        entry["total"] += _safe_int(row.get("total_amount"), 0)
+        entry["order_ids"].append(row.get("order_id"))
+    return by_faculty
+
+
+def _today_key_from_datetime(now_value: datetime) -> str:
+    return now_value.strftime("%Y-%m-%d")
+
+
+def _time_key_from_datetime(now_value: datetime) -> str:
+    return now_value.strftime("%H:%M")
+
+
+def _build_order_batch_id(uid: str, now_value: datetime) -> str:
+    clean_uid = str(uid or "student").strip() or "student"
+    return f"order-{clean_uid[:6]}-{int(now_value.timestamp())}"
+
+
+def _build_order_token(batch_id: str, now_value: datetime) -> str:
+    suffix = str(batch_id).split("-")[-1][-4:]
+    return f"CC-{now_value.strftime('%m%d')}-{suffix}"
+
+
+def _save_attendance_intent(uid: str, date_key: str, time_key: str) -> Dict[str, Any]:
+    intents = load_data(ATTENDANCE_INTENTS_FILE, DEFAULT_ATTENDANCE_INTENTS)
+    existing = next(
+        (
+            record for record in intents
+            if str(record.get("uid", "")).strip() == uid.strip()
+            and str(record.get("date", "")).strip() == date_key
+        ),
+        None,
+    )
+    if existing:
+        existing["time"] = time_key
+        existing["status"] = "pending_checkout"
+        save_data(ATTENDANCE_INTENTS_FILE, intents)
+        return existing
+
+    intent = {
+        "id": str(len(intents) + 1),
+        "uid": uid,
+        "date": date_key,
+        "time": time_key,
+        "status": "pending_checkout",
+    }
+    intents.append(intent)
+    save_data(ATTENDANCE_INTENTS_FILE, intents)
+    return intent
+
+
+def _clear_attendance_intent(uid: str, date_key: str) -> None:
+    intents = load_data(ATTENDANCE_INTENTS_FILE, DEFAULT_ATTENDANCE_INTENTS)
+    remaining = [
+        record
+        for record in intents
+        if not (
+            str(record.get("uid", "")).strip() == uid.strip()
+            and str(record.get("date", "")).strip() == date_key
+        )
+    ]
+    if len(remaining) != len(intents):
+        save_data(ATTENDANCE_INTENTS_FILE, remaining)
+
+
+def _mark_attendance_from_checkout(uid: str, date_key: str, time_key: str, batch_id: str) -> tuple[bool, int]:
+    attendance = load_data(ATTENDANCE_FILE, DEFAULT_ATTENDANCE)
+    already_marked = any(
+        str(record.get("uid", "")).strip() == uid.strip()
+        and str(record.get("date", "")).strip() == date_key
+        for record in attendance
+        if isinstance(record, dict)
+    )
+    if already_marked:
+        _clear_attendance_intent(uid, date_key)
+        return False, 0
+
+    attendance.append(
+        {
+            "id": str(len(attendance) + 1),
+            "uid": uid,
+            "date": date_key,
+            "time": time_key,
+            "source": "order_checkout",
+            "batch_id": batch_id,
+        }
+    )
+    save_data(ATTENDANCE_FILE, attendance)
+    _clear_attendance_intent(uid, date_key)
+    return True, 5
 
 
 def _normalize_email(value: Any) -> str:
@@ -1069,11 +1482,9 @@ def _operations_view_rows(
     restrict_to_user: bool = False,
 ) -> List[Dict[str, Any]]:
     try:
-        target_dt = datetime.fromisoformat(date_key)
-        forecast_rows = build_demand_dashboard(
-            target_datetime=target_dt,
+        forecast_rows = demand_dashboard_data(
+            target_date=date_key,
             time_slot=time_slot,
-            log_request=False,
         ).get("dashboard", [])
         forecast_by_food = {
             _normalized_food_key(row.get("food_item")): row
@@ -1403,21 +1814,38 @@ def admin_create_user(
 
 @app.get("/admin/menu-pending")
 def admin_menu_pending():
-    docs = db.collection("menu_pending").where("status", "==", "pending").stream()
-    pending_items = []
-    for doc in docs:
-        data = doc.to_dict() or {}
-        pending_items.append({
-            "id": doc.id,
-            "item_id": doc.id,
-            "name": data.get("name", ""),
-            "price": data.get("price", 0),
-            "category": data.get("category", "general"),
-            "status": data.get("status", "pending"),
-            "approved": data.get("approved", False),
-            "createdAt": data.get("createdAt"),
-        })
-    return pending_items
+    def normalize_local_pending() -> list[dict[str, Any]]:
+        pending_items = []
+        for entry in load_data(MENU_FILE, DEFAULT_MENU_PENDING):
+            if not isinstance(entry, dict):
+                continue
+            status = str(entry.get("status") or "pending").strip().lower() or "pending"
+            if status != "pending":
+                continue
+            item_id = str(entry.get("id", "")).strip()
+            if not item_id:
+                continue
+            pending_items.append(
+                {
+                    "id": item_id,
+                    "item_id": item_id,
+                    "name": entry.get("name", ""),
+                    "price": entry.get("price", 0),
+                    "category": entry.get("category", "general"),
+                    "status": status,
+                    "approved": entry.get("approved", False),
+                    "createdAt": entry.get("createdAt"),
+                    "requestedBy": entry.get("requestedBy"),
+                }
+            )
+        pending_items.sort(key=lambda item: str(item.get("createdAt", "")), reverse=True)
+        return pending_items
+
+    return _cached_response(
+        "admin:menu_pending",
+        FACULTY_CACHE_TTL_SECONDS,
+        normalize_local_pending,
+    )
 
 
 
@@ -1430,27 +1858,80 @@ class MenuAction(BaseModel):
 
 @app.post("/admin/menu-approve")
 def admin_menu_approve(payload: MenuAction):
-    pending_ref = db.collection("menu_pending").document(payload.id)
-    pending_doc = pending_ref.get()
-    if not pending_doc.exists:
+    local_pending = load_data(MENU_FILE, DEFAULT_MENU_PENDING)
+    pending_data = {}
+    local_match = next(
+        (
+            entry for entry in local_pending
+            if isinstance(entry, dict) and str(entry.get("id", "")).strip() == payload.id
+        ),
+        None,
+    )
+    if local_match:
+        pending_data = dict(local_match)
+
+    if not pending_data:
         raise HTTPException(status_code=404, detail="Menu item not found")
 
 
-    pending_data = pending_doc.to_dict() or {}
+    shared_menu = load_data(MENU_MASTER, DEFAULT_MENU)
+    shared_menu = [
+        entry
+        for entry in shared_menu
+        if _normalized_food_key(entry.get("name")) != payload.id
+    ]
+    shared_menu.insert(
+        0,
+        {
+            "id": payload.id,
+            "name": pending_data.get("name", ""),
+            "price": pending_data.get("price", 0),
+            "category": pending_data.get("category", "general"),
+        },
+    )
+    save_data(MENU_MASTER, shared_menu)
 
-
-    db.collection("menu").document(payload.id).set({
-        "name": pending_data.get("name", ""),
-        "price": pending_data.get("price", 0),
-        "category": pending_data.get("category", "general"),
-        "approved": True,
+    approved_at = datetime.now(timezone.utc).isoformat()
+    menu_payload = {
+            "name": pending_data.get("name", ""),
+            "price": pending_data.get("price", 0),
+            "category": pending_data.get("category", "general"),
+            "approved": True,
+            "status": "approved",
+            "approvedAt": approved_at,
+        }
+    pending_cleanup_payload = {
         "status": "approved",
-        "approvedAt": datetime.now(timezone.utc).isoformat(),
-    }, merge=True)
+        "approved": True,
+        "approvedAt": approved_at,
+    }
 
+    updated_local_pending = [
+        entry
+        for entry in local_pending
+        if not (
+            isinstance(entry, dict)
+            and str(entry.get("id", "")).strip() == payload.id
+        )
+    ]
+    save_data(MENU_FILE, updated_local_pending)
+    _invalidate_cache_prefix("shared:menu")
+    _invalidate_cache_prefix("admin:menu_pending")
+    _invalidate_cache_prefix("analytics:ml_overview")
+    _invalidate_cache_prefix("demand_dashboard:")
 
-    # Move flow: remove from pending after approval.
-    pending_ref.delete()
+    threading.Thread(
+        target=_sync_menu_item_to_firestore,
+        args=(payload.id, menu_payload),
+        daemon=True,
+    ).start()
+    threading.Thread(
+        target=_sync_menu_pending_status_to_firestore,
+        args=(payload.id, pending_cleanup_payload),
+        kwargs={"delete_after": True},
+        daemon=True,
+    ).start()
+
     return {"message": "Menu item approved", "id": payload.id}
 
 
@@ -1458,17 +1939,34 @@ def admin_menu_approve(payload: MenuAction):
 
 @app.post("/admin/menu-reject")
 def admin_menu_reject(payload: MenuAction):
-    pending_ref = db.collection("menu_pending").document(payload.id)
-    pending_doc = pending_ref.get()
-    if not pending_doc.exists:
+    local_pending = load_data(MENU_FILE, DEFAULT_MENU_PENDING)
+    found_local = False
+    rejected_at = datetime.now(timezone.utc).isoformat()
+    for entry in local_pending:
+        if isinstance(entry, dict) and str(entry.get("id", "")).strip() == payload.id:
+            entry["status"] = "rejected"
+            entry["rejectedAt"] = rejected_at
+            entry["approved"] = False
+            found_local = True
+
+    if not found_local:
         raise HTTPException(status_code=404, detail="Menu item not found")
+    save_data(MENU_FILE, local_pending)
+    _invalidate_cache_prefix("admin:menu_pending")
+    _invalidate_cache_prefix("analytics:ml_overview")
 
-
-    pending_ref.set({
-        "status": "rejected",
-        "rejectedAt": datetime.now(timezone.utc).isoformat(),
-    }, merge=True)
-
+    threading.Thread(
+        target=_sync_menu_pending_status_to_firestore,
+        args=(
+            payload.id,
+            {
+                "status": "rejected",
+                "rejectedAt": rejected_at,
+                "approved": False,
+            },
+        ),
+        daemon=True,
+    ).start()
 
     return {"message": "Menu item rejected", "id": payload.id}
 
@@ -2446,8 +2944,8 @@ def get_college_food_requests(authorization: Optional[str] = Header(default=None
 
 @app.get("/menu")
 def get_menu():
-    local_menu = load_data(MENU_MASTER, DEFAULT_MENU)
-    if local_menu:
+    def normalize_local_menu() -> list[dict[str, Any]]:
+        local_menu = load_data(MENU_MASTER, DEFAULT_MENU)
         normalized_menu = []
         for entry in local_menu:
             if not isinstance(entry, dict):
@@ -2455,7 +2953,9 @@ def get_menu():
             name = str(entry.get("name", "")).strip()
             if not name:
                 continue
-            item_id = str(entry.get("id") or entry.get("item_id") or _normalized_food_key(name)).strip()
+            item_id = str(
+                entry.get("id") or entry.get("item_id") or _normalized_food_key(name)
+            ).strip()
             normalized_menu.append(
                 {
                     "id": item_id,
@@ -2466,29 +2966,13 @@ def get_menu():
                     "approved": bool(entry.get("approved", True)),
                 }
             )
-        if normalized_menu:
-            return normalized_menu
+        return normalized_menu or DEFAULT_MENU
 
-    try:
-        docs = db.collection("menu").where("approved", "==", True).stream(timeout=3)
-        menu_items = []
-        for doc in docs:
-            data = doc.to_dict() or {}
-            menu_items.append({
-                "id": doc.id,
-                "item_id": doc.id,
-                "name": data.get("name", ""),
-                "price": data.get("price", 0),
-                "category": data.get("category", "general"),
-                "approved": data.get("approved", True),
-            })
-
-        if menu_items:
-            return menu_items
-    except Exception:
-        pass
-
-    return DEFAULT_MENU
+    return _cached_response(
+        "shared:menu",
+        FACULTY_CACHE_TTL_SECONDS,
+        normalize_local_menu,
+    )
 
 
 
@@ -2497,6 +2981,8 @@ class CreateMenuItem(BaseModel):
     name: str
     price: int
     category: str = "general"
+    auto_approve: bool = True
+    requested_by: Optional[str] = None
 
 
 
@@ -2510,6 +2996,45 @@ def create_menu_item(item: CreateMenuItem):
     category = item.category.strip().lower() if item.category else "general"
     created_at = datetime.now(timezone.utc).isoformat()
     item_id = _normalized_food_key(name) or f"menu-{int(datetime.now().timestamp())}"
+
+    if not item.auto_approve:
+        pending_items = load_data(MENU_FILE, DEFAULT_MENU_PENDING)
+        pending_items = [
+            entry
+            for entry in pending_items
+            if not (
+                isinstance(entry, dict)
+                and _normalized_food_key(entry.get("name")) == item_id
+                and str(entry.get("status", "pending")).strip().lower() == "pending"
+            )
+        ]
+        pending_payload = {
+            "id": item_id,
+            "name": name,
+            "price": item.price,
+            "category": category,
+            "status": "pending",
+            "approved": False,
+            "requestedBy": item.requested_by or "canteen",
+            "createdAt": created_at,
+        }
+        pending_items.insert(0, pending_payload)
+        save_data(MENU_FILE, pending_items)
+
+        try:
+            db.collection("menu_pending").document(item_id).set(pending_payload, merge=True)
+        except Exception:
+            pass
+
+        _invalidate_cache_prefix("admin:menu_pending")
+        _invalidate_cache_prefix("analytics:ml_overview")
+        _invalidate_cache_prefix("demand_dashboard:")
+
+        return {
+            "message": "Menu item submitted for approval",
+            "id": item_id,
+            "status": "pending",
+        }
 
     shared_menu = load_data(MENU_MASTER, DEFAULT_MENU)
     shared_menu = [entry for entry in shared_menu if _normalized_food_key(entry.get("name")) != item_id]
@@ -2536,6 +3061,11 @@ def create_menu_item(item: CreateMenuItem):
         },
         merge=True,
     )
+
+    _invalidate_cache_prefix("shared:menu")
+    _invalidate_cache_prefix("admin:menu_pending")
+    _invalidate_cache_prefix("analytics:ml_overview")
+    _invalidate_cache_prefix("demand_dashboard:")
 
     return {
         "message": "Menu item added",
@@ -2597,40 +3127,47 @@ def get_canteen_operations(
     date_key = _normalize_operation_date(date)
     slot = str(time_slot or "11:00-13:00").strip() or "11:00-13:00"
 
-    merged_items = _operations_view_rows(
-        date_key=date_key,
-        time_slot=slot,
-        restrict_to_user=False,
-    )
-    average_confidence = round(
-        sum(float(row.get("confidence_score", 0) or 0) for row in merged_items)
-        / len(merged_items),
-        2,
-    ) if merged_items else 0
+    def build_payload():
+        merged_items = _operations_view_rows(
+            date_key=date_key,
+            time_slot=slot,
+            restrict_to_user=False,
+        )
+        average_confidence = round(
+            sum(float(row.get("confidence_score", 0) or 0) for row in merged_items)
+            / len(merged_items),
+            2,
+        ) if merged_items else 0
 
-    summary = _operations_summary(merged_items)
-    summary.update(
-        {
-            "items_forecasted": len(merged_items),
-            "average_confidence": average_confidence,
-            "highest_demand_item": merged_items[0]["food_item"] if merged_items else "N/A",
-        }
-    )
+        summary = _operations_summary(merged_items)
+        summary.update(
+            {
+                "items_forecasted": len(merged_items),
+                "average_confidence": average_confidence,
+                "highest_demand_item": merged_items[0]["food_item"] if merged_items else "N/A",
+            }
+        )
 
-    return {
-        "date": date_key,
-        "time_slot": slot,
-        "items": merged_items,
-        "summary": summary,
-        "forecast_summary": {
-            "items_forecasted": len(merged_items),
-            "average_confidence": average_confidence,
-            "highest_demand_item": merged_items[0]["food_item"] if merged_items else "N/A",
-            "generated_at": datetime.now().isoformat(),
+        return {
+            "date": date_key,
             "time_slot": slot,
-        },
-        "formula": "Saved operations are shown directly to avoid rebuilding the forecast on every page open.",
-    }
+            "items": merged_items,
+            "summary": summary,
+            "forecast_summary": {
+                "items_forecasted": len(merged_items),
+                "average_confidence": average_confidence,
+                "highest_demand_item": merged_items[0]["food_item"] if merged_items else "N/A",
+                "generated_at": datetime.now().isoformat(),
+                "time_slot": slot,
+            },
+            "formula": "Saved operations are shown directly to avoid rebuilding the forecast on every page open.",
+        }
+
+    return _cached_response(
+        f"canteen:operations:{date_key}:{slot}",
+        FACULTY_CACHE_TTL_SECONDS,
+        build_payload,
+    )
 
 
 @app.post("/canteen/operations")
@@ -2730,6 +3267,11 @@ def save_canteen_operations(
             daemon=True,
         ).start()
 
+    _invalidate_cache_prefix("analytics:waste_report")
+    _invalidate_cache_prefix(f"canteen:operations:{date_key}:{slot}")
+    _invalidate_cache_prefix("analytics:prediction_accuracy")
+    _invalidate_cache_prefix("analytics:ml_overview")
+
     scoped_rows = _operations_for_scope(
         date_key=date_key,
         time_slot=slot,
@@ -2754,6 +3296,12 @@ def place_order(order: OrderRequest):
     if order.price < 0:
         raise HTTPException(status_code=400, detail="Price cannot be negative")
 
+    now_local = datetime.now()
+    today_key = _today_key_from_datetime(now_local)
+    time_key = _time_key_from_datetime(now_local)
+    batch_id = _build_order_batch_id(order.uid, now_local)
+    order_token = _build_order_token(batch_id, now_local)
+
     orders = load_data(ORDERS_FILE, DEFAULT_ORDERS)
     category = str(order.category or "general").strip().lower() or "general"
     orders.append({
@@ -2764,19 +3312,39 @@ def place_order(order: OrderRequest):
         "quantity": order.quantity,
         "category": category,
         "time": pd.Timestamp.now().isoformat(),
+        "date": today_key,
+        "batch_id": batch_id,
+        "order_token": order_token,
     })
     save_data(ORDERS_FILE, orders)
+    _invalidate_cache_prefix("analytics:student_behavior")
+    _invalidate_cache_prefix(f"student:orders:{order.uid}")
+    _invalidate_cache_prefix(f"student:attendance:{order.uid}")
+    _invalidate_cache_prefix("student:leaderboard")
+    _invalidate_cache_prefix("analytics:ml_overview")
+    _invalidate_cache_prefix("canteen:order_queue")
+    attendance_marked, attendance_points_awarded = _mark_attendance_from_checkout(
+        order.uid,
+        today_key,
+        time_key,
+        batch_id,
+    )
     base_points = max(order.quantity * 10, 10)
     bonus_points = _order_bonus_points(category, order.quantity)
-    points_awarded = base_points + bonus_points
+    points_awarded = base_points + bonus_points + attendance_points_awarded
     total_points = _increment_user_points(order.uid, points_awarded)
     return {
         "message": "Order placed",
+        "order_batch_id": batch_id,
+        "order_token": order_token,
         "base_points": base_points,
         "bonus_points": bonus_points,
-        "points_awarded": points_awarded,
+        "points_awarded": base_points + bonus_points,
+        "attendance_marked": attendance_marked,
+        "attendance_points_awarded": attendance_points_awarded,
         "total_points": total_points,
         "reward": get_rewards(total_points),
+        "counter_message": f"Show order ID {order_token} at the canteen counter.",
     }
 
 
@@ -2785,6 +3353,15 @@ def place_order_batch(payload: BatchOrderRequest):
     if not payload.items:
         raise HTTPException(status_code=400, detail="Cart is empty")
 
+    # Checkout is the commit point for a student visit:
+    # 1) place order lines
+    # 2) mark attendance for today (if not already marked)
+    now_local = datetime.now()
+    today_key = _today_key_from_datetime(now_local)
+    time_key = _time_key_from_datetime(now_local)
+    batch_id = _build_order_batch_id(payload.uid, now_local)
+    order_token = _build_order_token(batch_id, now_local)
+
     orders = load_data(ORDERS_FILE, DEFAULT_ORDERS)
     next_id = len(orders) + 1
     total_cost = 0
@@ -2792,6 +3369,13 @@ def place_order_batch(payload: BatchOrderRequest):
     total_awarded = 0
     total_bonus = 0
     placed_items = []
+
+    attendance_marked, attendance_points_awarded = _mark_attendance_from_checkout(
+        payload.uid,
+        today_key,
+        time_key,
+        batch_id,
+    )
 
     for line in payload.items:
         if line.quantity <= 0:
@@ -2808,6 +3392,9 @@ def place_order_batch(payload: BatchOrderRequest):
             "quantity": line.quantity,
             "category": category,
             "time": pd.Timestamp.now().isoformat(),
+            "date": today_key,
+            "batch_id": batch_id,
+            "order_token": order_token,
         })
         next_id += 1
 
@@ -2830,75 +3417,109 @@ def place_order_batch(payload: BatchOrderRequest):
         )
 
     save_data(ORDERS_FILE, orders)
-    total_points = _increment_user_points(payload.uid, total_awarded)
+    _invalidate_cache_prefix("analytics:student_behavior")
+    _invalidate_cache_prefix(f"student:orders:{payload.uid}")
+    _invalidate_cache_prefix(f"student:attendance:{payload.uid}")
+    _invalidate_cache_prefix("student:leaderboard")
+    _invalidate_cache_prefix("analytics:ml_overview")
+    _invalidate_cache_prefix("canteen:order_queue")
+    total_points = _increment_user_points(
+        payload.uid,
+        total_awarded + attendance_points_awarded,
+    )
     return {
         "message": "Order placed",
+        "order_batch_id": batch_id,
+        "order_token": order_token,
         "items": placed_items,
         "item_count": len(placed_items),
         "quantity_total": total_quantity,
         "total_cost": total_cost,
         "bonus_points": total_bonus,
         "points_awarded": total_awarded,
+        "attendance_marked": attendance_marked,
+        "attendance_points_awarded": attendance_points_awarded,
+        "attendance_date": today_key,
         "total_points": total_points,
         "reward": get_rewards(total_points),
+        "counter_message": f"Show order ID {order_token} at the canteen counter.",
     }
 
 
 @app.get("/student/orders/{uid}")
 def get_student_orders(uid: str):
-    orders = load_data(ORDERS_FILE, DEFAULT_ORDERS)
-    student_orders = [
-        order for order in orders if str(order.get("uid", "")).strip() == uid.strip()
-    ]
-    student_orders.sort(key=lambda order: str(order.get("time", "")), reverse=True)
-    return student_orders
+    def build_payload():
+        orders = load_data(ORDERS_FILE, DEFAULT_ORDERS)
+        student_orders = [
+            order for order in orders if str(order.get("uid", "")).strip() == uid.strip()
+        ]
+        student_orders.sort(key=lambda order: str(order.get("time", "")), reverse=True)
+        return student_orders
+
+    return _cached_response(
+        f"student:orders:{uid}",
+        FACULTY_CACHE_TTL_SECONDS,
+        build_payload,
+    )
 
 
 @app.get("/student/attendance/{uid}")
 def get_student_attendance(uid: str):
-    records = _sorted_attendance_records(uid)
-    summary = _attendance_summary(records)
-    return {
-        "records": records,
-        **summary,
-    }
+    def build_payload():
+        records = _sorted_attendance_records(uid)
+        summary = _attendance_summary(records)
+        return {
+            "records": records,
+            **summary,
+        }
+
+    return _cached_response(
+        f"student:attendance:{uid}",
+        FACULTY_CACHE_TTL_SECONDS,
+        build_payload,
+    )
 
 
 @app.get("/student/leaderboard")
 def get_student_leaderboard():
-    leaderboard = []
-    try:
-        docs = db.collection("users").stream(timeout=3)
-        for doc in docs:
-            data = doc.to_dict() or {}
-            role = str(data.get("role", "")).strip().lower()
-            if role not in {"student", "faculty"}:
-                continue
-            if data.get("isActive") is False:
-                continue
+    def build_payload():
+        profiles = load_data(USER_PROFILES_FILE, DEFAULT_USER_PROFILES)
+        points_cache = _load_points_cache()
+        leaderboard = []
+        if isinstance(profiles, dict):
+            for uid, data in profiles.items():
+                if not isinstance(data, dict):
+                    continue
+                role = str(data.get("role", "")).strip().lower()
+                if role not in {"student", "faculty"}:
+                    continue
+                if data.get("isActive") is False:
+                    continue
+                points = _safe_int(points_cache.get(uid, data.get("points", data.get("rewardPoints", 0))))
+                leaderboard.append(
+                    {
+                        "uid": uid,
+                        "name": data.get("name", "") or "Campus User",
+                        "email": data.get("email", ""),
+                        "role": role,
+                        "points": points,
+                        "reward": get_rewards(points),
+                    }
+                )
 
-            points = _safe_int(data.get("points", data.get("rewardPoints", 0)))
-            leaderboard.append(
-                {
-                    "uid": doc.id,
-                    "name": data.get("name", "") or "Campus User",
-                    "email": data.get("email", ""),
-                    "role": role,
-                    "points": points,
-                    "reward": get_rewards(points),
-                }
-            )
-    except Exception:
-        return []
+        leaderboard.sort(
+            key=lambda row: (-row["points"], str(row.get("name", "")).lower(), str(row.get("email", "")).lower())
+        )
 
-    leaderboard.sort(
-        key=lambda row: (-row["points"], str(row.get("name", "")).lower(), str(row.get("email", "")).lower())
+        for index, row in enumerate(leaderboard, start=1):
+            row["rank"] = index
+        return leaderboard
+
+    return _cached_response(
+        "student:leaderboard",
+        FACULTY_CACHE_TTL_SECONDS,
+        build_payload,
     )
-
-    for index, row in enumerate(leaderboard, start=1):
-        row["rank"] = index
-
-    return leaderboard
 
 
 
@@ -2916,20 +3537,23 @@ def mark_attendance(att: AttendanceRequest):
     attendance = load_data(ATTENDANCE_FILE, DEFAULT_ATTENDANCE)
     found = next((a for a in attendance if a.get("uid") == att.uid and a.get("date") == att.date), None)
     if found:
-        raise HTTPException(status_code=400, detail="Attendance already marked")
-    attendance.append({
-        "id": str(len(attendance) + 1),
-        "uid": att.uid,
-        "date": att.date,
-        "time": att.time,
-    })
-    save_data(ATTENDANCE_FILE, attendance)
-    points_awarded = 5
-    total_points = _increment_user_points(att.uid, points_awarded)
+        return {
+            "message": "Attendance already confirmed for this date",
+            "intent_saved": False,
+            "attendance_confirmed": True,
+            "points_awarded": 0,
+            "total_points": _current_points_from_cache(att.uid),
+        }
+
+    _save_attendance_intent(att.uid, att.date, att.time)
+    _invalidate_cache_prefix(f"student:attendance:{att.uid}")
     return {
-        "message": "Attendance marked",
-        "points_awarded": points_awarded,
-        "total_points": total_points,
+        "message": "Attendance intent saved. Checkout an order to confirm attendance.",
+        "intent_saved": True,
+        "attendance_confirmed": False,
+        "points_awarded": 0,
+        "total_points": _current_points_from_cache(att.uid),
+        "next_step": "Add items to cart and checkout to confirm attendance.",
     }
 
 
@@ -3022,6 +3646,13 @@ class FacultyPayRequest(BaseModel):
 
 
 
+class PickupQueueStatusRequest(BaseModel):
+    source: str
+    pickup_status: str
+    order_token: Optional[str] = None
+    order_id: Optional[str] = None
+
+
 class RegisterFcmTokenRequest(BaseModel):
     token: str
 
@@ -3047,15 +3678,12 @@ def _period_days(period: str) -> int:
 
 def _collect_faculty_pending(days: int) -> Dict[str, Dict]:
     now = datetime.now(timezone.utc)
-    docs = db.collection("faculty_orders").where("payment_status", "==", "pending").stream()
-
-
     by_faculty: Dict[str, Dict] = {}
-    for doc in docs:
-        data = doc.to_dict() or {}
-        created_raw = data.get("createdAt")
-
-
+    local_rows = _load_faculty_orders_local()
+    for row in local_rows:
+        if row.get("payment_status") != "pending":
+            continue
+        created_raw = row.get("createdAt")
         include = True
         if created_raw:
             try:
@@ -3063,20 +3691,40 @@ def _collect_faculty_pending(days: int) -> Dict[str, Dict]:
                 include = (now - created_dt).days < days
             except Exception:
                 include = True
-
-
         if not include:
             continue
-
-
-        faculty_id = data.get("faculty_id")
+        faculty_id = row.get("faculty_id")
         if not faculty_id:
             continue
-
-
         entry = by_faculty.setdefault(faculty_id, {"total": 0, "order_ids": []})
-        entry["total"] += int(data.get("total_amount", 0) or 0)
-        entry["order_ids"].append(doc.id)
+        entry["total"] += _safe_int(row.get("total_amount"), 0)
+        entry["order_ids"].append(row.get("order_id"))
+
+    try:
+        docs = db.collection("faculty_orders").where("payment_status", "==", "pending").stream(timeout=3)
+        for doc in docs:
+            data = doc.to_dict() or {}
+            created_raw = data.get("createdAt")
+            include = True
+            if created_raw:
+                try:
+                    created_dt = datetime.fromisoformat(str(created_raw).replace("Z", "+00:00"))
+                    include = (now - created_dt).days < days
+                except Exception:
+                    include = True
+            if not include:
+                continue
+            faculty_id = data.get("faculty_id")
+            if not faculty_id:
+                continue
+            entry = by_faculty.setdefault(faculty_id, {"total": 0, "order_ids": []})
+            order_id = doc.id
+            if order_id in entry["order_ids"]:
+                continue
+            entry["total"] += int(data.get("total_amount", 0) or 0)
+            entry["order_ids"].append(order_id)
+    except Exception:
+        pass
 
 
     return by_faculty
@@ -3104,6 +3752,289 @@ def register_fcm_token(
 
 
 
+def _load_remote_faculty_orders() -> List[Dict[str, Any]]:
+    remote_orders: List[Dict[str, Any]] = []
+    try:
+        docs = db.collection("faculty_orders").stream(timeout=3)
+        for doc in docs:
+            data = doc.to_dict() or {}
+            remote_orders.append(
+                {
+                    "order_id": doc.id,
+                    "faculty_id": data.get("faculty_id"),
+                    "items": data.get("items", []),
+                    "total_amount": int(data.get("total_amount", 0) or 0),
+                    "payment_status": data.get("payment_status", "pending"),
+                    "date": data.get("date"),
+                    "createdAt": data.get("createdAt"),
+                    "order_token": data.get("order_token"),
+                    "pickup_status": data.get("pickup_status", "pending"),
+                    "source": "remote",
+                }
+            )
+    except Exception:
+        remote_orders = []
+    return remote_orders
+
+
+def _build_student_queue_entries() -> List[Dict[str, Any]]:
+    status_map = _pickup_status_map()
+    rows = load_data(ORDERS_FILE, DEFAULT_ORDERS)
+    grouped: Dict[str, Dict[str, Any]] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        row_id = str(row.get("id") or "").strip()
+        order_token = str(row.get("order_token") or "").strip()
+        batch_id = str(row.get("batch_id") or "").strip()
+        entry_id = batch_id or order_token or row_id or f"student-{row_id}"
+        if not entry_id:
+            continue
+        normalized_order_id = batch_id or row_id or entry_id
+        display_token = order_token or (f"Order #{row_id}" if row_id else entry_id)
+
+        entry = grouped.setdefault(
+            entry_id,
+            {
+                "source": "student",
+                "entry_id": entry_id,
+                "order_id": normalized_order_id,
+                "order_token": order_token or None,
+                "display_token": display_token,
+                "user_id": str(row.get("uid") or "").strip(),
+                "createdAt": row.get("time"),
+                "date": row.get("date"),
+                "items": [],
+                "total_quantity": 0,
+                "total_amount": 0,
+                "payment_status": "paid",
+            },
+        )
+        quantity = _safe_int(row.get("quantity"), 0)
+        price = _safe_int(row.get("price"), 0)
+        line_total = quantity * price
+        entry["items"].append(
+            {
+                "name": str(row.get("item") or "Item").strip() or "Item",
+                "quantity": quantity,
+                "unit_price": price,
+                "line_total": line_total,
+            }
+        )
+        entry["total_quantity"] += quantity
+        entry["total_amount"] += line_total
+        if not entry.get("createdAt") and row.get("time"):
+            entry["createdAt"] = row.get("time")
+        if not entry.get("date") and row.get("date"):
+            entry["date"] = row.get("date")
+        if not entry.get("order_token") and order_token:
+            entry["order_token"] = order_token
+        if not entry.get("display_token") and display_token:
+            entry["display_token"] = display_token
+
+    entries: List[Dict[str, Any]] = []
+    for entry in grouped.values():
+        entry_key = _pickup_entry_key(
+            "student",
+            str(entry.get("order_id") or ""),
+            str(entry.get("order_token") or ""),
+        )
+        status_row = status_map.get(entry_key, {})
+        entry["pickup_status"] = str(
+            status_row.get("pickup_status")
+            or entry.get("pickup_status")
+            or "pending"
+        ).strip().lower() or "pending"
+        entry["updatedAt"] = status_row.get("updatedAt") or entry.get("createdAt")
+        entries.append(entry)
+    return entries
+
+
+def _build_faculty_queue_entries() -> List[Dict[str, Any]]:
+    status_map = _pickup_status_map()
+    faculty_orders = _load_faculty_orders_local()
+    entries: List[Dict[str, Any]] = []
+    for row in faculty_orders:
+        order_id = str(row.get("order_id") or "").strip()
+        order_token = str(row.get("order_token") or "").strip()
+        if not order_id and not order_token:
+            continue
+        items = row.get("items", [])
+        normalized_items = []
+        total_quantity = 0
+        for item in items if isinstance(items, list) else []:
+            quantity = _safe_int(item.get("quantity"), 0)
+            unit_price = _safe_int(item.get("unit_price"), 0)
+            line_total = _safe_int(item.get("line_total"), quantity * unit_price)
+            total_quantity += quantity
+            normalized_items.append(
+                {
+                    "name": str(item.get("name") or "Item").strip() or "Item",
+                    "quantity": quantity,
+                    "unit_price": unit_price,
+                    "line_total": line_total,
+                }
+            )
+        entry_key = _pickup_entry_key("faculty", order_id, order_token)
+        status_row = status_map.get(entry_key, {})
+        entries.append(
+            {
+                "source": "faculty",
+                "entry_id": order_id or order_token,
+                "order_id": order_id,
+                "order_token": order_token,
+                "user_id": str(row.get("faculty_id") or "").strip(),
+                "createdAt": row.get("createdAt"),
+                "date": row.get("date"),
+                "items": normalized_items,
+                "total_quantity": total_quantity,
+                "total_amount": _safe_int(row.get("total_amount"), 0),
+                "payment_status": str(row.get("payment_status") or "pending").strip().lower() or "pending",
+                "pickup_status": str(
+                    status_row.get("pickup_status")
+                    or row.get("pickup_status")
+                    or "pending"
+                ).strip().lower() or "pending",
+                "updatedAt": status_row.get("updatedAt") or row.get("createdAt"),
+            }
+        )
+    return entries
+
+
+def _queue_status_rank(status: str) -> int:
+    normalized = str(status or "pending").strip().lower()
+    if normalized == "pending":
+        return 0
+    if normalized == "ready":
+        return 1
+    if normalized == "collected":
+        return 2
+    return 3
+
+
+def _queue_sort_timestamp(row: Dict[str, Any]) -> float:
+    parsed = _parse_iso_datetime(row.get("createdAt") or row.get("date") or "")
+    if parsed is None:
+        return 0
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc).timestamp()
+
+
+def _build_canteen_order_queue() -> Dict[str, Any]:
+    queue_entries = _build_student_queue_entries() + _build_faculty_queue_entries()
+    queue_entries.sort(
+        key=lambda row: (
+            _queue_status_rank(str(row.get("pickup_status") or "pending")),
+            -_queue_sort_timestamp(row),
+        )
+    )
+    pending_count = sum(1 for row in queue_entries if row.get("pickup_status") == "pending")
+    ready_count = sum(1 for row in queue_entries if row.get("pickup_status") == "ready")
+    collected_count = sum(1 for row in queue_entries if row.get("pickup_status") == "collected")
+    return {
+        "orders": queue_entries,
+        "summary": {
+            "total_orders": len(queue_entries),
+            "pending_count": pending_count,
+            "ready_count": ready_count,
+            "collected_count": collected_count,
+            "student_count": sum(1 for row in queue_entries if row.get("source") == "student"),
+            "faculty_count": sum(1 for row in queue_entries if row.get("source") == "faculty"),
+        },
+    }
+
+
+@app.get("/canteen/order-queue")
+def get_canteen_order_queue(authorization: Optional[str] = Header(default=None)):
+    _resolve_canteen_request(authorization)
+    return _cached_response(
+        "canteen:order_queue",
+        FACULTY_CACHE_TTL_SECONDS,
+        _build_canteen_order_queue,
+    )
+
+
+@app.post("/canteen/order-queue/status")
+def update_canteen_order_queue_status(
+    payload: PickupQueueStatusRequest,
+    authorization: Optional[str] = Header(default=None),
+):
+    _resolve_canteen_request(authorization)
+    source = str(payload.source or "").strip().lower()
+    if source not in {"student", "faculty"}:
+        raise HTTPException(status_code=400, detail="Invalid order source")
+    pickup_status = str(payload.pickup_status or "").strip().lower()
+    if pickup_status not in {"pending", "ready", "collected"}:
+        raise HTTPException(status_code=400, detail="Invalid pickup status")
+
+    order_token = str(payload.order_token or "").strip()
+    order_id = str(payload.order_id or "").strip()
+    identifier = order_id or order_token
+    if not identifier:
+        raise HTTPException(status_code=400, detail="Order token or order id is required")
+
+    updated = 0
+    if source == "student":
+        orders = load_data(ORDERS_FILE, DEFAULT_ORDERS)
+        for row in orders:
+            row_batch_id = str(row.get("batch_id") or "").strip()
+            row_token = str(row.get("order_token") or "").strip()
+            row_id = str(row.get("id") or "").strip()
+            if identifier not in {row_batch_id, row_token, row_id}:
+                continue
+            row["pickup_status"] = pickup_status
+            updated += 1
+        save_data(ORDERS_FILE, orders)
+    else:
+        faculty_orders = _load_faculty_orders_local()
+        for row in faculty_orders:
+            row_order_id = str(row.get("order_id") or "").strip()
+            row_token = str(row.get("order_token") or "").strip()
+            if identifier not in {row_order_id, row_token}:
+                continue
+            row["pickup_status"] = pickup_status
+            updated += 1
+        _save_faculty_orders_local(faculty_orders)
+        try:
+            if order_id:
+                db.collection("faculty_orders").document(order_id).set(
+                    {
+                        "pickup_status": pickup_status,
+                        "updatedAt": datetime.now(timezone.utc).isoformat(),
+                    },
+                    merge=True,
+                )
+        except Exception:
+            pass
+
+    if updated <= 0:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    status_rows = _load_pickup_queue_statuses()
+    entry_key = _pickup_entry_key(source, order_id, order_token or identifier)
+    now_iso = datetime.now(timezone.utc).isoformat()
+    next_rows = [row for row in status_rows if row.get("entry_key") != entry_key]
+    next_rows.insert(
+        0,
+        {
+            "entry_key": entry_key,
+            "order_token": order_token,
+            "order_id": order_id or identifier,
+            "source": source,
+            "pickup_status": pickup_status,
+            "updatedAt": now_iso,
+        },
+    )
+    _save_pickup_queue_statuses(next_rows)
+    _invalidate_cache_prefix("canteen:order_queue")
+    return {
+        "message": "Pickup status updated",
+        "updated_count": updated,
+        "pickup_status": pickup_status,
+    }
+
+
 @app.post("/faculty/orders")
 def create_faculty_order(payload: FacultyOrderRequest):
     if payload.quantity <= 0:
@@ -3114,10 +4045,11 @@ def create_faculty_order(payload: FacultyOrderRequest):
 
     total_amount = payload.unit_price * payload.quantity
     now = datetime.now(timezone.utc)
-
-
-    doc_ref = db.collection("faculty_orders").document()
-    doc_ref.set({
+    batch_id = _build_order_batch_id(payload.faculty_id, now)
+    order_token = _build_order_token(batch_id, now)
+    order_id = f"faculty-{int(now.timestamp())}-{payload.faculty_id[:6]}"
+    order_row = {
+        "order_id": order_id,
         "faculty_id": payload.faculty_id,
         "items": [
             {
@@ -3131,12 +4063,30 @@ def create_faculty_order(payload: FacultyOrderRequest):
         "payment_status": "pending",
         "date": now.date().isoformat(),
         "createdAt": now.isoformat(),
-    }, merge=True)
+        "order_token": order_token,
+        "order_batch_id": batch_id,
+        "pickup_status": "pending",
+    }
+    local_orders = _load_faculty_orders_local()
+    local_orders = [row for row in local_orders if row.get("order_id") != order_id]
+    local_orders.insert(0, order_row)
+    _save_faculty_orders_local(local_orders)
+
+    try:
+        doc_ref = db.collection("faculty_orders").document(order_id)
+        doc_ref.set(order_row, merge=True)
+    except Exception:
+        pass
+
+    _invalidate_cache_prefix(f"faculty:orders:{payload.faculty_id}:")
+    _invalidate_cache_prefix(f"faculty:pending_summary:{payload.faculty_id}:")
+    _invalidate_cache_prefix("canteen:order_queue")
 
 
     return {
         "message": "Faculty order created with pending payment",
-        "order_id": doc_ref.id,
+        "order_id": order_id,
+        "order_token": order_token,
         "total_amount": total_amount,
         "payment_status": "pending",
     }
@@ -3146,65 +4096,73 @@ def create_faculty_order(payload: FacultyOrderRequest):
 
 @app.get("/faculty/orders/{faculty_id}")
 def get_faculty_orders(faculty_id: str, status: str = "pending"):
-    query = db.collection("faculty_orders").where("faculty_id", "==", faculty_id)
-    if status:
-        query = query.where("payment_status", "==", status)
+    normalized_status = str(status or "pending").strip().lower()
 
-
-    docs = query.stream()
-    orders = []
-    total_pending = 0
-    for doc in docs:
-        data = doc.to_dict() or {}
-        row = {
-            "order_id": doc.id,
-            "faculty_id": data.get("faculty_id"),
-            "items": data.get("items", []),
-            "total_amount": int(data.get("total_amount", 0) or 0),
-            "payment_status": data.get("payment_status", "pending"),
-            "date": data.get("date"),
+    def build_payload():
+        orders = _local_faculty_orders_for_user(faculty_id, normalized_status)
+        total_pending = sum(
+            _safe_int(row.get("total_amount"), 0)
+            for row in orders
+            if str(row.get("payment_status") or "").strip().lower() == "pending"
+        )
+        return {
+            "faculty_id": faculty_id,
+            "orders": orders,
+            "total_pending": total_pending,
+            "data_source": "local_cache",
         }
-        if row["payment_status"] == "pending":
-            total_pending += row["total_amount"]
-        orders.append(row)
 
-
-    return {
-        "faculty_id": faculty_id,
-        "orders": orders,
-        "total_pending": total_pending,
-    }
+    return _cached_response(
+        f"faculty:orders:{faculty_id}:{normalized_status}",
+        FACULTY_CACHE_TTL_SECONDS,
+        build_payload,
+    )
 
 
 
 
 @app.post("/faculty/orders/pay")
 def pay_faculty_orders(payload: FacultyPayRequest):
-    if payload.order_ids:
-        refs = [db.collection("faculty_orders").document(order_id) for order_id in payload.order_ids]
-    else:
-        docs = db.collection("faculty_orders") \
-            .where("faculty_id", "==", payload.faculty_id) \
-            .where("payment_status", "==", "pending") \
-            .stream()
-        refs = [db.collection("faculty_orders").document(doc.id) for doc in docs]
-
-
-    if not refs:
-        return {"message": "No pending faculty orders to settle", "updated": 0}
-
-
     now = datetime.now(timezone.utc).isoformat()
     updated = 0
-    for ref in refs:
-        snapshot = ref.get()
-        if not snapshot.exists:
+    target_ids = set(payload.order_ids)
+    local_orders = _load_faculty_orders_local()
+    for row in local_orders:
+        order_id = str(row.get("order_id", "")).strip()
+        if row.get("faculty_id") != payload.faculty_id:
             continue
-        data = snapshot.to_dict() or {}
-        if data.get("faculty_id") != payload.faculty_id:
+        if row.get("payment_status") != "pending":
             continue
-        ref.set({"payment_status": "paid", "paidAt": now}, merge=True)
+        if target_ids and order_id not in target_ids:
+            continue
+        row["payment_status"] = "paid"
+        row["paidAt"] = now
         updated += 1
+    _save_faculty_orders_local(local_orders)
+
+    try:
+        if payload.order_ids:
+            refs = [db.collection("faculty_orders").document(order_id) for order_id in payload.order_ids]
+        else:
+            docs = db.collection("faculty_orders") \
+                .where("faculty_id", "==", payload.faculty_id) \
+                .where("payment_status", "==", "pending") \
+                .stream(timeout=3)
+            refs = [db.collection("faculty_orders").document(doc.id) for doc in docs]
+        for ref in refs:
+            snapshot = ref.get()
+            if not snapshot.exists:
+                continue
+            data = snapshot.to_dict() or {}
+            if data.get("faculty_id") != payload.faculty_id:
+                continue
+            ref.set({"payment_status": "paid", "paidAt": now}, merge=True)
+    except Exception:
+        pass
+
+    _invalidate_cache_prefix(f"faculty:orders:{payload.faculty_id}:")
+    _invalidate_cache_prefix(f"faculty:pending_summary:{payload.faculty_id}:")
+    _invalidate_cache_prefix("canteen:order_queue")
 
 
     return {"message": "Faculty payment settled", "updated": updated}
@@ -3215,14 +4173,23 @@ def pay_faculty_orders(payload: FacultyPayRequest):
 @app.get("/faculty/pending-summary/{faculty_id}")
 def faculty_pending_summary(faculty_id: str, period: str = "weekly"):
     days = _period_days(period)
-    pending = _collect_faculty_pending(days)
-    total = int(pending.get(faculty_id, {}).get("total", 0))
-    return {
-        "faculty_id": faculty_id,
-        "period": period,
-        "total_pending": total,
-        "notification_message": f"You have ₹{total} pending canteen payment this {period}."
-    }
+
+    def build_payload():
+        pending = _collect_faculty_pending_local(days)
+        total = int(pending.get(faculty_id, {}).get("total", 0))
+        return {
+            "faculty_id": faculty_id,
+            "period": period,
+            "total_pending": total,
+            "notification_message": f"You have ₹{total} pending canteen payment this {period}.",
+            "data_source": "local_cache",
+        }
+
+    return _cached_response(
+        f"faculty:pending_summary:{faculty_id}:{period}",
+        FACULTY_CACHE_TTL_SECONDS,
+        build_payload,
+    )
 
 
 

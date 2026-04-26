@@ -4,10 +4,7 @@ import 'package:flutter/material.dart';
 import '../../services/campus_service.dart';
 
 class MenuScreen extends StatefulWidget {
-  const MenuScreen({
-    super.key,
-    this.initialSearchQuery = '',
-  });
+  const MenuScreen({super.key, this.initialSearchQuery = ''});
 
   final String initialSearchQuery;
 
@@ -22,6 +19,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   String? _currentUid;
   bool _loading = true;
   bool _isCheckingOut = false;
+  bool _hasAttendanceIntentToday = false;
   String _searchQuery = '';
   String _selectedCategory = 'All';
 
@@ -125,7 +123,9 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
 
   int _estimatedPointsForItem(Map<String, dynamic> item, int quantity) {
     final category = item['category']?.toString() ?? 'general';
-    final basePoints = quantity <= 0 ? 0 : (quantity * 10 < 10 ? 10 : quantity * 10);
+    final basePoints = quantity <= 0
+        ? 0
+        : (quantity * 10 < 10 ? 10 : quantity * 10);
     return basePoints + _bonusPointsForCategory(category, quantity);
   }
 
@@ -223,6 +223,16 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _loadMenu() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      _currentUid = user.uid;
+      final intentDate = await _service.getAttendanceIntent(uid: user.uid);
+      final now = DateTime.now();
+      final todayKey =
+          '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+      _hasAttendanceIntentToday = intentDate == todayKey;
+    }
+
     setState(() {
       _loading = true;
     });
@@ -249,20 +259,21 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         _loading = false;
         _menu = [];
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Load menu failed: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Load menu failed: $e')));
     }
   }
 
   List<String> get _categories {
-    final values = _menu
-        .map((item) => item['category']?.toString().trim() ?? '')
-        .where((category) => category.isNotEmpty)
-        .map(_titleCase)
-        .toSet()
-        .toList()
-      ..sort();
+    final values =
+        _menu
+            .map((item) => item['category']?.toString().trim() ?? '')
+            .where((category) => category.isNotEmpty)
+            .map(_titleCase)
+            .toSet()
+            .toList()
+          ..sort();
     return ['All', ...values];
   }
 
@@ -294,7 +305,9 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
 
     if (price <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('This item is not available for ordering yet.')),
+        const SnackBar(
+          content: Text('This item is not available for ordering yet.'),
+        ),
       );
       return;
     }
@@ -360,11 +373,18 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
 
       if (!mounted) return;
 
+      final batchId = result['order_batch_id']?.toString();
+      final orderToken = result['order_token']?.toString();
+      final counterMessage =
+          result['counter_message']?.toString() ??
+          'Show your order ID at the canteen counter.';
       final totalAwarded = _readInt(result['points_awarded']);
       final totalBonus = _readInt(result['bonus_points']);
       final totalCost = _readInt(result['total_cost']);
       final totalItems = _readInt(result['quantity_total']);
       final latestTotalPoints = _readInt(result['total_points']);
+      final attendanceAwarded = _readInt(result['attendance_points_awarded']);
+      final attendanceMarked = result['attendance_marked'] == true;
 
       setState(() {
         for (final key in _cart.keys.toList()) {
@@ -372,8 +392,12 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         }
         _cart.clear();
         _isCheckingOut = false;
+        _hasAttendanceIntentToday = false;
       });
       _persistCart();
+
+      await _service.clearAttendanceIntent(uid: user.uid);
+      if (!mounted) return;
 
       final reward = _rewardLabel(latestTotalPoints);
       ScaffoldMessenger.of(context)
@@ -381,7 +405,11 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         ..showSnackBar(
           SnackBar(
             content: Text(
-              'Ordered $totalItems item${totalItems == 1 ? '' : 's'} for ₹$totalCost. +$totalAwarded pts including $totalBonus bonus. $reward.',
+              'Order ID ${orderToken ?? batchId ?? 'N/A'}: '
+              '$totalItems item${totalItems == 1 ? '' : 's'} for Rs. $totalCost. '
+              '+$totalAwarded pts (incl. $totalBonus bonus)'
+              '${attendanceMarked && attendanceAwarded > 0 ? ' +$attendanceAwarded attendance' : ''}. '
+              '$reward. $counterMessage',
             ),
             duration: const Duration(seconds: 4),
           ),
@@ -392,9 +420,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         _isCheckingOut = false;
       });
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(e.toString().replaceFirst('Exception: ', '')),
-        ),
+        SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
       );
     }
   }
@@ -491,7 +517,9 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                               width: 48,
                               height: 48,
                               decoration: BoxDecoration(
-                                color: const Color(0xFF0F766E).withValues(alpha: 0.12),
+                                color: const Color(
+                                  0xFF0F766E,
+                                ).withValues(alpha: 0.12),
                                 borderRadius: BorderRadius.circular(14),
                               ),
                               child: Icon(
@@ -627,6 +655,10 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
           children: [
             _buildHeaderCard(filteredMenu.length),
             const SizedBox(height: 18),
+            if (_hasAttendanceIntentToday) ...[
+              _buildIntentBanner(),
+              const SizedBox(height: 18),
+            ],
             _buildSearchCard(),
             const SizedBox(height: 18),
             _buildCategoryChips(),
@@ -676,7 +708,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
           ),
           const SizedBox(height: 14),
           const Text(
-            'Build your cart, review it at the bottom, and earn reward points as you order.',
+            'Build your cart, checkout once, and use the order ID at the canteen counter.',
             style: TextStyle(
               color: Colors.white,
               fontSize: 24,
@@ -692,6 +724,34 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
             style: const TextStyle(
               color: Color(0xFFE0F2FE),
               fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildIntentBanner() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEEF2FF),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFC7D2FE)),
+      ),
+      child: const Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.fact_check_rounded, color: Color(0xFF4F46E5)),
+          SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              'Attendance intent is saved for today. Finish checkout to confirm attendance and receive your order ID.',
+              style: TextStyle(
+                color: Color(0xFF3730A3),
+                fontWeight: FontWeight.w700,
+                height: 1.35,
+              ),
             ),
           ),
         ],
@@ -761,7 +821,9 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
           selectedColor: const Color(0xFF0F766E),
           backgroundColor: Colors.white,
           side: BorderSide(
-            color: isSelected ? const Color(0xFF0F766E) : const Color(0xFFE2E8F0),
+            color: isSelected
+                ? const Color(0xFF0F766E)
+                : const Color(0xFFE2E8F0),
           ),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(999),
@@ -781,11 +843,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       ),
       child: const Column(
         children: [
-          Icon(
-            Icons.no_food_rounded,
-            size: 44,
-            color: Color(0xFF94A3B8),
-          ),
+          Icon(Icons.no_food_rounded, size: 44, color: Color(0xFF94A3B8)),
           SizedBox(height: 12),
           Text(
             'No menu items match your current search.',
@@ -882,7 +940,10 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                 ),
               ),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
                 decoration: BoxDecoration(
                   color: const Color(0xFFECFDF5),
                   borderRadius: BorderRadius.circular(999),
@@ -903,7 +964,10 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
             runSpacing: 10,
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
                 decoration: BoxDecoration(
                   color: const Color(0xFFEFF6FF),
                   borderRadius: BorderRadius.circular(999),
@@ -918,7 +982,10 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
               ),
               if (bonusPoints > 0)
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
                   decoration: BoxDecoration(
                     color: const Color(0xFFF5F3FF),
                     borderRadius: BorderRadius.circular(999),

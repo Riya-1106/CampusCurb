@@ -1,11 +1,14 @@
 [
   {
-    "id": "m1",
-    "name": "Veg Wrap",
-    "price": 80,
-    "category": "sandwich",
-    "requestedBy": "canteen123",
-    "createdAt": "2026-03-14T08:00:00Z"
+    "id": "codex-approval-smoke-test",
+    "name": "Codex Approval Smoke Test",
+    "price": 99,
+    "category": "testing",
+    "status": "rejected",
+    "approved": false,
+    "requestedBy": "codex-test",
+    "createdAt": "2026-04-26T16:37:52.705478+00:00",
+    "rejectedAt": "2026-04-26T19:44:39.082784+00:00"
   },
   {
     "id": "m2",

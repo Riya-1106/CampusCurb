@@ -13,6 +13,8 @@ class CampusService {
   static const Duration _apiTimeout = Duration(milliseconds: 1500);
   static const Duration _orderTimeout = Duration(seconds: 8);
   static const Duration _profileTimeout = Duration(seconds: 4);
+  static const String _attendanceIntentKeyPrefix =
+      'attendance_intent_next_checkout_';
 
   int _readInt(dynamic value, {int fallback = 0}) {
     if (value is int) return value;
@@ -66,6 +68,27 @@ class CampusService {
   String _attendanceStorageKey(String uid) => 'attendance_records_$uid';
   String _cartStorageKey(String uid) => 'student_cart_$uid';
   String _pointsStorageKey(String uid) => 'cached_points_$uid';
+  String _attendanceIntentKey(String uid) => '$_attendanceIntentKeyPrefix$uid';
+
+  Future<void> setAttendanceIntent({
+    required String uid,
+    required String date,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_attendanceIntentKey(uid), date);
+  }
+
+  Future<String?> getAttendanceIntent({required String uid}) async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_attendanceIntentKey(uid));
+    if (raw == null || raw.trim().isEmpty) return null;
+    return _normalizeDateKey(raw);
+  }
+
+  Future<void> clearAttendanceIntent({required String uid}) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_attendanceIntentKey(uid));
+  }
 
   Future<List<Map<String, dynamic>>> _attendanceFromLocal(String uid) async {
     final prefs = await SharedPreferences.getInstance();
@@ -76,16 +99,14 @@ class CampusService {
 
     try {
       final decoded = json.decode(raw) as List<dynamic>;
-      final records = decoded
-          .map((item) {
-            final record = Map<String, dynamic>.from(item as Map);
-            final normalizedDate = _normalizeDateKey(record['date']);
-            if (normalizedDate != null) {
-              record['date'] = normalizedDate;
-            }
-            return record;
-          })
-          .toList();
+      final records = decoded.map((item) {
+        final record = Map<String, dynamic>.from(item as Map);
+        final normalizedDate = _normalizeDateKey(record['date']);
+        if (normalizedDate != null) {
+          record['date'] = normalizedDate;
+        }
+        return record;
+      }).toList();
       records.sort(
         (a, b) => '${b['date'] ?? ''}T${b['time'] ?? ''}'.compareTo(
           '${a['date'] ?? ''}T${a['time'] ?? ''}',
@@ -95,14 +116,6 @@ class CampusService {
     } catch (_) {
       return [];
     }
-  }
-
-  Future<void> _saveAttendanceToLocal(
-    String uid,
-    List<Map<String, dynamic>> records,
-  ) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_attendanceStorageKey(uid), json.encode(records));
   }
 
   Future<void> _cachePoints(String uid, int points) async {
@@ -119,16 +132,19 @@ class CampusService {
 
     try {
       final decoded = json.decode(raw) as List<dynamic>;
-      return decoded.map((item) {
-        final line = Map<String, dynamic>.from(item as Map);
-        return <String, dynamic>{
-          'key': line['key']?.toString() ?? '',
-          'itemName': line['itemName']?.toString() ?? 'Menu item',
-          'category': line['category']?.toString() ?? 'general',
-          'price': _readInt(line['price']),
-          'quantity': _readInt(line['quantity'], fallback: 1).clamp(1, 10),
-        };
-      }).where((line) => (line['key']?.toString().isNotEmpty ?? false)).toList();
+      return decoded
+          .map((item) {
+            final line = Map<String, dynamic>.from(item as Map);
+            return <String, dynamic>{
+              'key': line['key']?.toString() ?? '',
+              'itemName': line['itemName']?.toString() ?? 'Menu item',
+              'category': line['category']?.toString() ?? 'general',
+              'price': _readInt(line['price']),
+              'quantity': _readInt(line['quantity'], fallback: 1).clamp(1, 10),
+            };
+          })
+          .where((line) => (line['key']?.toString().isNotEmpty ?? false))
+          .toList();
     } catch (_) {
       return [];
     }
@@ -240,7 +256,10 @@ class CampusService {
 
   Future<int> _currentUserPoints(String uid) async {
     try {
-      final doc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
+      final doc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .get();
       final data = doc.data() ?? <String, dynamic>{};
       return _readInt(data['points'] ?? data['rewardPoints']);
     } catch (_) {
@@ -279,7 +298,9 @@ class CampusService {
               'approved': data['approved'] == true,
             };
           })
-          .where((item) => (item['name']?.toString().trim().isNotEmpty ?? false))
+          .where(
+            (item) => (item['name']?.toString().trim().isNotEmpty ?? false),
+          )
           .toList();
 
       if (items.isNotEmpty) {
@@ -290,18 +311,62 @@ class CampusService {
     }
 
     return const [
-      {'id': 'demo-1', 'item_id': 'demo-1', 'name': 'Veg Wrap', 'price': 80, 'category': 'fastfood', 'approved': true},
-      {'id': 'demo-2', 'item_id': 'demo-2', 'name': 'Masala Dosa', 'price': 50, 'category': 'breakfast', 'approved': true},
-      {'id': 'demo-3', 'item_id': 'demo-3', 'name': 'Cheese Pizza', 'price': 120, 'category': 'meal', 'approved': true},
-      {'id': 'demo-4', 'item_id': 'demo-4', 'name': 'Idli', 'price': 30, 'category': 'breakfast', 'approved': true},
-      {'id': 'demo-5', 'item_id': 'demo-5', 'name': 'Coffee', 'price': 66, 'category': 'beverage', 'approved': true},
-      {'id': 'demo-6', 'item_id': 'demo-6', 'name': 'Tea', 'price': 63, 'category': 'beverage', 'approved': true},
-      {'id': 'demo-7', 'item_id': 'demo-7', 'name': 'Milk', 'price': 63, 'category': 'beverage', 'approved': true},
-      {'id': 'demo-8', 'item_id': 'demo-8', 'name': 'Sandwich', 'price': 66, 'category': 'fastfood', 'approved': true},
-      {'id': 'demo-9', 'item_id': 'demo-9', 'name': 'Noodles', 'price': 64, 'category': 'fastfood', 'approved': true},
-      {'id': 'demo-10', 'item_id': 'demo-10', 'name': 'Burger', 'price': 68, 'category': 'fastfood', 'approved': true},
-      {'id': 'demo-11', 'item_id': 'demo-11', 'name': 'Pasta', 'price': 67, 'category': 'fastfood', 'approved': true},
-      {'id': 'demo-12', 'item_id': 'demo-12', 'name': 'Coke diet', 'price': 40, 'category': 'beverage', 'approved': true},
+      {
+        'id': 'demo-5',
+        'item_id': 'demo-5',
+        'name': 'Coffee',
+        'price': 66,
+        'category': 'beverage',
+        'approved': true,
+      },
+      {
+        'id': 'demo-6',
+        'item_id': 'demo-6',
+        'name': 'Tea',
+        'price': 63,
+        'category': 'beverage',
+        'approved': true,
+      },
+      {
+        'id': 'demo-8',
+        'item_id': 'demo-8',
+        'name': 'Sandwich',
+        'price': 66,
+        'category': 'fastfood',
+        'approved': true,
+      },
+      {
+        'id': 'demo-9',
+        'item_id': 'demo-9',
+        'name': 'Noodles',
+        'price': 64,
+        'category': 'fastfood',
+        'approved': true,
+      },
+      {
+        'id': 'demo-10',
+        'item_id': 'demo-10',
+        'name': 'Burger',
+        'price': 68,
+        'category': 'fastfood',
+        'approved': true,
+      },
+      {
+        'id': 'demo-11',
+        'item_id': 'demo-11',
+        'name': 'Pasta',
+        'price': 67,
+        'category': 'fastfood',
+        'approved': true,
+      },
+      {
+        'id': 'demo-12',
+        'item_id': 'demo-12',
+        'name': 'Coke diet',
+        'price': 40,
+        'category': 'beverage',
+        'approved': true,
+      },
     ];
   }
 
@@ -332,7 +397,9 @@ class CampusService {
         };
       }).toList();
 
-      entries.sort((a, b) => _readInt(b['points']).compareTo(_readInt(a['points'])));
+      entries.sort(
+        (a, b) => _readInt(b['points']).compareTo(_readInt(a['points'])),
+      );
       for (var i = 0; i < entries.length; i++) {
         entries[i]['rank'] = i + 1;
       }
@@ -407,10 +474,7 @@ class CampusService {
         .post(
           Uri.parse('$baseUrl/order/batch'),
           headers: {'Content-Type': 'application/json'},
-          body: json.encode({
-            'uid': uid,
-            'items': items,
-          }),
+          body: json.encode({'uid': uid, 'items': items}),
         )
         .timeout(_orderTimeout);
     if (res.statusCode != 200) {
@@ -443,77 +507,50 @@ class CampusService {
     required String time,
   }) async {
     try {
-      final res = await http.post(
-        Uri.parse('$baseUrl/attendance'),
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode({'uid': uid, 'date': date, 'time': time}),
-      ).timeout(_attendanceTimeout);
+      final res = await http
+          .post(
+            Uri.parse('$baseUrl/attendance'),
+            headers: {'Content-Type': 'application/json'},
+            body: json.encode({'uid': uid, 'date': date, 'time': time}),
+          )
+          .timeout(_attendanceTimeout);
       if (res.statusCode != 200) {
         throw Exception(_extractErrorMessage(res, 'Attendance failed'));
       }
       final payload = json.decode(res.body) as Map<String, dynamic>;
       final totalPoints = _readInt(payload['total_points']);
       await _cachePoints(uid, totalPoints);
+      if (payload['intent_saved'] == true) {
+        await setAttendanceIntent(uid: uid, date: date);
+      }
       return payload;
     } on http.ClientException catch (_) {
-      final localRecords = await _attendanceFromLocal(uid);
       final currentPoints = await _currentUserPoints(uid);
-      final alreadyMarked = localRecords.any(
-        (record) => _normalizeDateKey(record['date']) == date,
-      );
-      if (alreadyMarked) {
-        throw Exception('Attendance already marked');
-      }
-
-      final nextRecords = [
-        <String, dynamic>{
-          'id': 'local-${DateTime.now().millisecondsSinceEpoch}',
-          'uid': uid,
-          'date': date,
-          'time': time,
-          'source': 'local',
-        },
-        ...localRecords,
-      ];
-      await _saveAttendanceToLocal(uid, nextRecords);
+      await setAttendanceIntent(uid: uid, date: date);
       await _cachePoints(uid, currentPoints);
       return {
-        'message': 'Attendance saved locally',
+        'message': 'Attendance intent saved locally',
+        'intent_saved': true,
+        'attendance_confirmed': false,
         'points_awarded': 0,
         'total_points': currentPoints,
         'is_local_fallback': true,
         'notice':
-            'Attendance was saved on this device because the live server is unavailable.',
+            'Attendance intent was saved on this device. Checkout will confirm it when the server is reachable.',
       };
     } on TimeoutException catch (_) {
-      final localRecords = await _attendanceFromLocal(uid);
       final currentPoints = await _currentUserPoints(uid);
-      final alreadyMarked = localRecords.any(
-        (record) => _normalizeDateKey(record['date']) == date,
-      );
-      if (alreadyMarked) {
-        throw Exception('Attendance already marked');
-      }
-
-      final nextRecords = [
-        <String, dynamic>{
-          'id': 'local-${DateTime.now().millisecondsSinceEpoch}',
-          'uid': uid,
-          'date': date,
-          'time': time,
-          'source': 'local',
-        },
-        ...localRecords,
-      ];
-      await _saveAttendanceToLocal(uid, nextRecords);
+      await setAttendanceIntent(uid: uid, date: date);
       await _cachePoints(uid, currentPoints);
       return {
-        'message': 'Attendance saved locally',
+        'message': 'Attendance intent saved locally',
+        'intent_saved': true,
+        'attendance_confirmed': false,
         'points_awarded': 0,
         'total_points': currentPoints,
         'is_local_fallback': true,
         'notice':
-            'Attendance was saved on this device because the live server is unavailable.',
+            'Attendance intent was saved on this device. Checkout will confirm it when the server is reachable.',
       };
     }
   }
@@ -622,7 +659,8 @@ class CampusService {
       final doc = await FirebaseFirestore.instance
           .collection('users')
           .doc(user.uid)
-          .get();
+          .get()
+          .timeout(_profileTimeout);
       final data = doc.data();
       if (doc.exists && data != null && data.isNotEmpty) {
         return Map<String, dynamic>.from(data);

@@ -97,13 +97,11 @@ class _AdminAnalyticsScreenState extends State<AdminAnalyticsScreen> {
       }
     }
 
-    final results = await Future.wait<Map<String, dynamic>?>(
-      [
-        safeLoad(_service.getStudentAnalytics()),
-        safeLoad(_service.getPredictionAccuracy()),
-        safeLoad(_service.getMlOverview()),
-      ],
-    );
+    final results = await Future.wait<Map<String, dynamic>?>([
+      safeLoad(_service.getStudentAnalytics()),
+      safeLoad(_service.getPredictionAccuracy()),
+      safeLoad(_service.getMlOverview()),
+    ]);
 
     if (!mounted) return;
     setState(() {
@@ -201,8 +199,7 @@ class _AdminAnalyticsScreenState extends State<AdminAnalyticsScreen> {
         normalized.contains('success')) {
       return const Color(0xFF15803D);
     }
-    if (normalized.contains('promising') ||
-        normalized.contains('improving')) {
+    if (normalized.contains('promising') || normalized.contains('improving')) {
       return const Color(0xFF2563EB);
     }
     if (normalized.contains('early') ||
@@ -243,7 +240,9 @@ class _AdminAnalyticsScreenState extends State<AdminAnalyticsScreen> {
   String _formatDuration(dynamic value) {
     final seconds = _toDouble(value);
     if (seconds <= 0) return 'Not recorded';
-    if (seconds < 60) return '${seconds.toStringAsFixed(seconds < 10 ? 1 : 0)} sec';
+    if (seconds < 60) {
+      return '${seconds.toStringAsFixed(seconds < 10 ? 1 : 0)} sec';
+    }
     final minutes = (seconds / 60).floor();
     final remaining = (seconds % 60).round();
     return '$minutes min ${remaining}s';
@@ -304,10 +303,7 @@ class _AdminAnalyticsScreenState extends State<AdminAnalyticsScreen> {
       ),
       child: Text(
         label,
-        style: TextStyle(
-          color: color,
-          fontWeight: FontWeight.w800,
-        ),
+        style: TextStyle(color: color, fontWeight: FontWeight.w800),
       ),
     );
   }
@@ -432,9 +428,15 @@ class _AdminAnalyticsScreenState extends State<AdminAnalyticsScreen> {
     );
   }
 
-  Widget accuracyTrendChart(List<Map<String, dynamic>> logs) {
-    final points = logs
-        .map((e) => _toDouble(e['accuracy_percentage']))
+  Widget accuracyTrendChart(List<Map<String, dynamic>> trendData) {
+    final points = trendData
+        .map(
+          (e) => _toDouble(
+            e.containsKey('average_accuracy')
+                ? e['average_accuracy']
+                : e['accuracy_percentage'],
+          ),
+        )
         .where((v) => v >= 0)
         .toList();
 
@@ -462,6 +464,39 @@ class _AdminAnalyticsScreenState extends State<AdminAnalyticsScreen> {
               color: const Color(0xFF2E6FD8),
             ),
           ),
+        ),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: trendData.map((item) {
+            final label =
+                item['label']?.toString() ??
+                item['target_date']?.toString() ??
+                'N/A';
+            final value = _toDouble(
+              item.containsKey('average_accuracy')
+                  ? item['average_accuracy']
+                  : item['accuracy_percentage'],
+            );
+            return Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFF2E6FD8).withValues(alpha: 0.10),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(
+                  color: const Color(0xFF2E6FD8).withValues(alpha: 0.20),
+                ),
+              ),
+              child: Text(
+                '$label • ${value.toStringAsFixed(value % 1 == 0 ? 0 : 1)}%',
+                style: const TextStyle(
+                  color: Color(0xFF2E6FD8),
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            );
+          }).toList(),
         ),
       ],
     );
@@ -500,10 +535,7 @@ class _AdminAnalyticsScreenState extends State<AdminAnalyticsScreen> {
             width: 72,
             child: Text(
               label,
-              style: TextStyle(
-                color: color,
-                fontWeight: FontWeight.w700,
-              ),
+              style: TextStyle(color: color, fontWeight: FontWeight.w700),
             ),
           ),
           Expanded(
@@ -591,10 +623,7 @@ class _AdminAnalyticsScreenState extends State<AdminAnalyticsScreen> {
           height: 90,
           width: double.infinity,
           child: CustomPaint(
-            painter: _TrendLinePainter(
-              points: points,
-              color: color,
-            ),
+            painter: _TrendLinePainter(points: points, color: color),
           ),
         ),
         const SizedBox(height: 10),
@@ -613,10 +642,7 @@ class _AdminAnalyticsScreenState extends State<AdminAnalyticsScreen> {
               ),
               child: Text(
                 '$label • ${value.toStringAsFixed(value % 1 == 0 ? 0 : 1)}$suffix',
-                style: TextStyle(
-                  color: color,
-                  fontWeight: FontWeight.w700,
-                ),
+                style: TextStyle(color: color, fontWeight: FontWeight.w700),
               ),
             );
           }).toList(),
@@ -709,6 +735,11 @@ class _AdminAnalyticsScreenState extends State<AdminAnalyticsScreen> {
     );
     final confidenceTrend = List<Map<String, dynamic>>.from(
       (trendData['confidence'] as List<dynamic>? ?? []).map(
+        (e) => Map<String, dynamic>.from(e as Map),
+      ),
+    );
+    final accuracyTrend = List<Map<String, dynamic>>.from(
+      (trendData['accuracy'] as List<dynamic>? ?? []).map(
         (e) => Map<String, dynamic>.from(e as Map),
       ),
     );
@@ -998,7 +1029,8 @@ class _AdminAnalyticsScreenState extends State<AdminAnalyticsScreen> {
                                 ),
                                 const SizedBox(height: 6),
                                 Text(
-                                  trainingStatus['last_error']?.toString() ?? '',
+                                  trainingStatus['last_error']?.toString() ??
+                                      '',
                                   style: const TextStyle(
                                     color: Color(0xFF7F1D1D),
                                     height: 1.4,
@@ -1029,7 +1061,9 @@ class _AdminAnalyticsScreenState extends State<AdminAnalyticsScreen> {
                               ),
                             ),
                             OutlinedButton.icon(
-                              onPressed: retraining ? null : refreshTrainingStatus,
+                              onPressed: retraining
+                                  ? null
+                                  : refreshTrainingStatus,
                               icon: const Icon(Icons.refresh_rounded),
                               label: const Text('Refresh Status'),
                             ),
@@ -1155,17 +1189,22 @@ class _AdminAnalyticsScreenState extends State<AdminAnalyticsScreen> {
                         const SizedBox(height: 12),
                         simpleList<Map<String, dynamic>>(
                           items: topRecommendations,
-                          emptyText: 'No live forecast recommendations available.',
+                          emptyText:
+                              'No live forecast recommendations available.',
                           builder: (item, index) => Card(
                             margin: const EdgeInsets.only(bottom: 8),
                             child: ListTile(
-                              title: Text(item['food_item']?.toString() ?? 'Unknown'),
+                              title: Text(
+                                item['food_item']?.toString() ?? 'Unknown',
+                              ),
                               subtitle: Text(
                                 'Predict ${item['predicted_demand'] ?? 0} • Prepare ${item['suggested_preparation'] ?? 0} • Waste ${item['expected_waste'] ?? 0}',
                               ),
                               trailing: Text(
                                 item['confidence_label']?.toString() ?? 'Low',
-                                style: const TextStyle(fontWeight: FontWeight.w700),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                ),
                               ),
                             ),
                           ),
@@ -1178,19 +1217,20 @@ class _AdminAnalyticsScreenState extends State<AdminAnalyticsScreen> {
                         const SizedBox(height: 12),
                         simpleList<Map<String, dynamic>>(
                           items: lowConfidenceItems,
-                          emptyText: 'No low-confidence forecast items right now.',
+                          emptyText:
+                              'No low-confidence forecast items right now.',
                           builder: (item, index) => ListTile(
                             dense: true,
                             contentPadding: EdgeInsets.zero,
                             leading: const Icon(Icons.warning_amber_rounded),
-                            title: Text(item['food_item']?.toString() ?? 'Unknown'),
+                            title: Text(
+                              item['food_item']?.toString() ?? 'Unknown',
+                            ),
                             subtitle: Text(
                               item['recommended_action']?.toString() ??
                                   'Review recent demand before preparing.',
                             ),
-                            trailing: Text(
-                              '${item['confidence_score'] ?? 0}%',
-                            ),
+                            trailing: Text('${item['confidence_score'] ?? 0}%'),
                           ),
                         ),
                       ],
@@ -1396,7 +1436,9 @@ class _AdminAnalyticsScreenState extends State<AdminAnalyticsScreen> {
                           ),
                         ),
                         const SizedBox(height: 14),
-                        accuracyTrendChart(recentLogs),
+                        accuracyTrendChart(
+                          accuracyTrend.isNotEmpty ? accuracyTrend : recentLogs,
+                        ),
                         const SizedBox(height: 16),
                         const Text(
                           'Accuracy By Food',

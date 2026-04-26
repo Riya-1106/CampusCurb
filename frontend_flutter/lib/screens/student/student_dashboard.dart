@@ -266,57 +266,99 @@ class _StudentDashboardState extends State<StudentDashboard>
       nextRewardPoints = cachedPoints;
     }
 
-    try {
-      final userDoc = await _firestore.collection('users').doc(user.uid).get();
+    final profileFuture = _firestore.collection('users').doc(user.uid).get();
+    final attendanceFuture = _campusService.getAttendanceHistory(uid: user.uid);
+    final ordersFuture = _campusService.getOrders(uid: user.uid);
+    final menuFuture = _campusService.getMenu();
+
+    Future<Object?> safeProfile() async {
+      try {
+        return await profileFuture;
+      } catch (_) {
+        return null;
+      }
+    }
+
+    Future<Object?> safeAttendance() async {
+      try {
+        return await attendanceFuture;
+      } catch (_) {
+        return null;
+      }
+    }
+
+    Future<Object?> safeOrders() async {
+      try {
+        return await ordersFuture;
+      } catch (_) {
+        return null;
+      }
+    }
+
+    Future<Object?> safeMenu() async {
+      try {
+        return await menuFuture;
+      } catch (_) {
+        return null;
+      }
+    }
+
+    final results = await Future.wait<Object?>([
+      safeProfile(),
+      safeAttendance(),
+      safeOrders(),
+      safeMenu(),
+    ]);
+
+    final userDoc = results[0];
+    if (userDoc is DocumentSnapshot<Map<String, dynamic>>) {
       final userData = userDoc.data() ?? <String, dynamic>{};
       nextUserData = userData;
       final livePoints = _readInt(
         userData['points'] ?? userData['rewardPoints'],
       );
       nextRewardPoints = livePoints > cachedPoints ? livePoints : cachedPoints;
-    } catch (_) {
+    } else {
       profileLoadFailed = true;
     }
 
-    try {
-      final attendancePayload = await _campusService.getAttendanceHistory(
-        uid: user.uid,
-      );
+    final attendancePayload = results[1];
+    if (attendancePayload is Map<String, dynamic>) {
       nextAttendanceStreak = _readInt(attendancePayload['current_streak']);
       nextHasMarkedToday = attendancePayload['has_marked_today'] == true;
       nextAttendanceRecords =
           (attendancePayload['records'] as List<dynamic>? ?? const [])
               .map((item) => Map<String, dynamic>.from(item as Map))
               .toList();
-    } catch (_) {
+    } else {
       attendanceLoadFailed = true;
     }
 
-    try {
-      final orders = await _campusService.getOrders(uid: user.uid);
-      nextAllOrders = orders;
-      final totalSpent = orders.fold<int>(
+    final ordersPayload = results[2];
+    if (ordersPayload is List<Map<String, dynamic>>) {
+      nextAllOrders = ordersPayload;
+      final totalSpent = ordersPayload.fold<int>(
         0,
         (runningTotal, order) =>
             runningTotal +
             (_readInt(order['price']) *
                 _readInt(order['quantity'], fallback: 1)),
       );
-      nextRecentOrders = orders.take(4).toList();
-      nextTotalOrders = orders.length;
+      nextRecentOrders = ordersPayload.take(4).toList();
+      nextTotalOrders = ordersPayload.length;
       nextTotalSpent = totalSpent;
-    } catch (_) {
+    } else {
       ordersLoadFailed = true;
       nextRecentOrders = [];
       nextTotalOrders = 0;
       nextTotalSpent = 0;
     }
 
-    try {
-      final menu = await _campusService.getMenu();
-      nextMenuPreview = menu.take(4).toList();
-      nextMenuCount = menu.length;
-    } catch (_) {
+    final menuPayload = results[3];
+    if (menuPayload is List<Map<String, dynamic>>) {
+      nextMenuPreview = menuPayload.take(4).toList();
+      nextMenuCount = menuPayload.length;
+    } else {
       menuLoadFailed = true;
       nextMenuPreview = [];
       nextMenuCount = 0;
@@ -888,14 +930,14 @@ class _StudentDashboardState extends State<StudentDashboard>
               crossAxisCount: width < 600 ? 1 : 2,
               crossAxisSpacing: 12,
               mainAxisSpacing: 12,
-              childAspectRatio: 1.12,
+              mainAxisExtent: 96,
             ),
             itemBuilder: (context, index) =>
                 _buildQuickActionCard(actions[index]),
           )
         else
           SizedBox(
-            height: 136,
+            height: 104,
             child: ListView.separated(
               scrollDirection: Axis.horizontal,
               itemCount: actions.length,
@@ -915,47 +957,60 @@ class _StudentDashboardState extends State<StudentDashboard>
         color: Colors.transparent,
         child: InkWell(
           onTap: action.onTap,
-          borderRadius: BorderRadius.circular(22),
+          borderRadius: BorderRadius.circular(18),
           child: Container(
-            padding: const EdgeInsets.all(18),
+            padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
               color: Colors.white,
-              borderRadius: BorderRadius.circular(22),
+              borderRadius: BorderRadius.circular(18),
               border: Border.all(color: const Color(0xFFE2E8F0)),
               boxShadow: [
                 BoxShadow(
                   color: action.color.withValues(alpha: 0.12),
-                  blurRadius: 18,
-                  offset: const Offset(0, 10),
+                  blurRadius: 14,
+                  offset: const Offset(0, 8),
                 ),
               ],
             ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 Container(
-                  padding: const EdgeInsets.all(12),
+                  padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
                     color: action.color.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(14),
+                    borderRadius: BorderRadius.circular(12),
                   ),
                   child: Icon(action.icon, color: action.color),
                 ),
-                const Spacer(),
-                Text(
-                  action.title,
-                  style: const TextStyle(
-                    color: Color(0xFF0F172A),
-                    fontSize: 16,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  action.subtitle,
-                  style: const TextStyle(
-                    color: Color(0xFF64748B),
-                    fontWeight: FontWeight.w600,
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        action.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Color(0xFF0F172A),
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        action.subtitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Color(0xFF64748B),
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],

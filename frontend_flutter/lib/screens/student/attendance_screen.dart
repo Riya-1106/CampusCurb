@@ -3,9 +3,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../services/campus_service.dart';
+import 'menu_screen.dart';
 
 class AttendanceScreen extends StatefulWidget {
-  const AttendanceScreen({super.key});
+  const AttendanceScreen({super.key, this.onOpenMenu});
+
+  final VoidCallback? onOpenMenu;
 
   @override
   State<AttendanceScreen> createState() => _AttendanceScreenState();
@@ -20,6 +23,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   bool _isLoading = true;
   bool _isMarking = false;
   bool _hasMarkedToday = false;
+  bool _hasPendingIntentToday = false;
   bool _isLocalMode = false;
 
   int _currentStreak = 0;
@@ -140,7 +144,11 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   }
 
   void _changeMonth(int delta) {
-    final nextMonth = DateTime(_visibleMonth.year, _visibleMonth.month + delta, 1);
+    final nextMonth = DateTime(
+      _visibleMonth.year,
+      _visibleMonth.month + delta,
+      1,
+    );
     final currentSelection = _selectedDate;
     final selectedDay = currentSelection == null ? 1 : currentSelection.day;
     final boundedDay = selectedDay.clamp(1, _daysInMonth(nextMonth));
@@ -179,6 +187,8 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
         uid: user.uid,
         preferLocalOnly: preferLocalOnly,
       );
+      final intentDate = await _service.getAttendanceIntent(uid: user.uid);
+      final todayKey = _todayKey();
       final records = (payload['records'] as List<dynamic>? ?? const [])
           .map((item) => Map<String, dynamic>.from(item as Map))
           .toList();
@@ -187,6 +197,8 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
       setState(() {
         _attendanceHistory = records;
         _hasMarkedToday = payload['has_marked_today'] == true;
+        _hasPendingIntentToday =
+            intentDate != null && intentDate.trim() == todayKey;
         _currentStreak = _readInt(payload['current_streak']);
         _monthlyAttendance = _readInt(payload['monthly_attendance']);
         _attendancePercentage = _readDouble(payload['attendance_percentage']);
@@ -201,6 +213,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
         _currentStreak = 0;
         _monthlyAttendance = 0;
         _attendancePercentage = 0;
+        _hasPendingIntentToday = false;
         _isLocalMode = false;
         _isLoading = false;
         _errorMessage = e.toString().replaceFirst('Exception: ', '');
@@ -224,44 +237,34 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     });
 
     try {
+      final dateKey = _todayKey();
       final result = await _service.markAttendance(
         uid: user.uid,
-        date: _todayKey(),
+        date: dateKey,
         time: _currentTime(),
       );
-
       if (!mounted) return;
-      final pointsAwarded = _readInt(result['points_awarded']);
-      final totalPoints = _readInt(result['total_points']);
-      final isLocalFallback = result['is_local_fallback'] == true;
-      final notice = result['notice']?.toString();
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            isLocalFallback
-                ? 'Attendance saved on this device. Rewards will sync when the live server is reachable.'
-                : pointsAwarded > 0
-                ? 'Attendance marked. +$pointsAwarded points, total $totalPoints.'
-                : 'Attendance marked successfully.',
+            result['message']?.toString() ??
+                'Attendance intent saved. Complete checkout to confirm today and earn points.',
           ),
         ),
       );
       HapticFeedback.lightImpact();
-      if (notice != null && notice.isNotEmpty && mounted) {
-        setState(() {
-          _noticeMessage = notice;
-          _isLocalMode = isLocalFallback;
-        });
-      }
-      await _loadAttendanceData(preferLocalOnly: isLocalFallback);
+      setState(() {
+        _noticeMessage =
+            'Intent saved: checkout an order to confirm attendance.';
+        _isLocalMode = false;
+      });
+      await _loadAttendanceData(preferLocalOnly: false);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-            e.toString().replaceFirst('Exception: ', ''),
-          ),
+          content: Text(e.toString().replaceFirst('Exception: ', '')),
           backgroundColor: Colors.red,
         ),
       );
@@ -272,6 +275,19 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
         });
       }
     }
+  }
+
+  Future<void> _openMenu() async {
+    if (widget.onOpenMenu != null) {
+      widget.onOpenMenu!();
+      return;
+    }
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const MenuScreen()),
+    );
+    if (!mounted) return;
+    await _loadAttendanceData();
   }
 
   @override
@@ -313,14 +329,14 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
               const SizedBox(height: 18),
             ],
             _buildMarkCard(),
-          const SizedBox(height: 18),
-          _buildStatsGrid(),
-          const SizedBox(height: 18),
-          _buildCalendarCard(),
-          const SizedBox(height: 18),
-          _buildHistoryCard(),
-        ],
-      ),
+            const SizedBox(height: 18),
+            _buildStatsGrid(),
+            const SizedBox(height: 18),
+            _buildCalendarCard(),
+            const SizedBox(height: 18),
+            _buildHistoryCard(),
+          ],
+        ),
       ),
     );
   }
@@ -367,7 +383,9 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
           Text(
             _hasMarkedToday
                 ? 'You are already marked for today.'
-                : 'Tap once below to mark attendance for today.',
+                : _hasPendingIntentToday
+                ? 'Your intent is saved. Finish checkout to confirm today.'
+                : 'Save your attendance intent, then order and checkout to confirm it.',
             style: const TextStyle(
               color: Color(0xFFE0E7FF),
               fontWeight: FontWeight.w600,
@@ -455,40 +473,78 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
           Text(
             _hasMarkedToday
                 ? 'Today is already recorded in your attendance log.'
-                : 'Your attendance is recorded once per day and also adds reward points.',
+                : _hasPendingIntentToday
+                ? 'Your attendance will count only after you checkout an order.'
+                : 'Save intent here first, then checkout from the menu to make attendance count.',
             style: const TextStyle(
               color: Color(0xFF64748B),
               fontWeight: FontWeight.w600,
             ),
           ),
           const SizedBox(height: 16),
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton.icon(
-              onPressed: (_isMarking || _isLoading || _hasMarkedToday)
-                  ? null
-                  : _markAttendance,
-              style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xFF4F46E5),
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 16),
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed:
+                      (_isMarking ||
+                          _isLoading ||
+                          _hasMarkedToday ||
+                          _hasPendingIntentToday)
+                      ? null
+                      : _markAttendance,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFF4F46E5),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                  ),
+                  icon: _isMarking
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.check_circle_rounded),
+                  label: Text(
+                    _hasMarkedToday
+                        ? 'Attendance Confirmed'
+                        : _hasPendingIntentToday
+                        ? 'Intent Saved'
+                        : _isMarking
+                        ? 'Saving...'
+                        : 'Save Intent',
+                  ),
+                ),
               ),
-              icon: _isMarking
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.check_circle_rounded),
-              label: Text(
-                _hasMarkedToday
-                    ? 'Attendance Marked'
-                    : _isMarking
-                    ? 'Saving...'
-                    : 'Mark Today',
+              const SizedBox(width: 12),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _hasMarkedToday ? null : _openMenu,
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFF0F766E),
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    side: const BorderSide(color: Color(0xFF99F6E4)),
+                  ),
+                  icon: const Icon(Icons.shopping_cart_checkout_rounded),
+                  label: Text(
+                    _hasPendingIntentToday ? 'Checkout Now' : 'Open Menu',
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (!_hasMarkedToday) ...[
+            const SizedBox(height: 12),
+            Text(
+              'Attendance is counted only after checkout. Ordering without saving intent first will still auto-mark today.',
+              style: const TextStyle(
+                color: Color(0xFF64748B),
+                fontSize: 12.5,
+                fontWeight: FontWeight.w600,
+                height: 1.35,
               ),
             ),
-          ),
+          ],
         ],
       ),
     );
@@ -584,8 +640,11 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     final trailingEmpty = (7 - (totalSlots % 7)) % 7;
     final cellCount = totalSlots + trailingEmpty;
     final selectedDate = _selectedDate;
-    final selectedRecord = selectedDate == null ? null : _recordForDate(selectedDate);
-    final selectedIsFuture = selectedDate != null && _isFutureDate(selectedDate);
+    final selectedRecord = selectedDate == null
+        ? null
+        : _recordForDate(selectedDate);
+    final selectedIsFuture =
+        selectedDate != null && _isFutureDate(selectedDate);
 
     const weekDays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
@@ -691,10 +750,15 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
               }
 
               final dayNumber = index - leadingEmpty + 1;
-              final date = DateTime(_visibleMonth.year, _visibleMonth.month, dayNumber);
+              final date = DateTime(
+                _visibleMonth.year,
+                _visibleMonth.month,
+                dayNumber,
+              );
               final record = _recordForDate(date);
               final isFuture = _isFutureDate(date);
-              final isSelected = selectedDate != null && _isSameDate(selectedDate, date);
+              final isSelected =
+                  selectedDate != null && _isSameDate(selectedDate, date);
 
               final backgroundColor = record != null
                   ? const Color(0xFFDCFCE7)
@@ -889,7 +953,9 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            time.isEmpty ? 'Time unavailable' : 'Marked at $time',
+                            time.isEmpty
+                                ? 'Time unavailable'
+                                : 'Marked at $time',
                             style: const TextStyle(
                               color: Color(0xFF64748B),
                               fontWeight: FontWeight.w600,
@@ -941,10 +1007,7 @@ class _CalendarLegendChip extends StatelessWidget {
       ),
       child: Text(
         label,
-        style: TextStyle(
-          color: textColor,
-          fontWeight: FontWeight.w700,
-        ),
+        style: TextStyle(color: textColor, fontWeight: FontWeight.w700),
       ),
     );
   }

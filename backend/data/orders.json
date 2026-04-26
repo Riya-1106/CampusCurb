@@ -6,7 +6,8 @@
     "price": 40,
     "quantity": 1,
     "category": "beverage",
-    "time": "2026-04-21T01:10:56.424912"
+    "time": "2026-04-21T01:10:56.424912",
+    "pickup_status": "collected"
   },
   {
     "id": "2",
@@ -15,6 +16,46 @@
     "price": 60,
     "quantity": 1,
     "category": "snack",
-    "time": "2026-04-21T23:44:41.171171"
+    "time": "2026-04-21T23:44:41.171171",
+    "pickup_status": "collected"
+  },
+  {
+    "id": "3",
+    "uid": "H6nrGLHqfYUiH4e4XRxMsMQq2im1",
+    "item": "Tea",
+    "price": 63,
+    "quantity": 1,
+    "category": "beverage",
+    "time": "2026-04-26T21:44:32.997470",
+    "date": "2026-04-26",
+    "batch_id": "order-H6nrGL-1777220072",
+    "order_token": "CC-0426-0072",
+    "pickup_status": "collected"
+  },
+  {
+    "id": "4",
+    "uid": "H6nrGLHqfYUiH4e4XRxMsMQq2im1",
+    "item": "Pasta",
+    "price": 67,
+    "quantity": 1,
+    "category": "fastfood",
+    "time": "2026-04-27T00:42:46.369606",
+    "date": "2026-04-27",
+    "batch_id": "order-H6nrGL-1777230766",
+    "order_token": "CC-0427-0766",
+    "pickup_status": "collected"
+  },
+  {
+    "id": "5",
+    "uid": "H6nrGLHqfYUiH4e4XRxMsMQq2im1",
+    "item": "Tea",
+    "price": 63,
+    "quantity": 1,
+    "category": "beverage",
+    "time": "2026-04-27T00:42:46.371539",
+    "date": "2026-04-27",
+    "batch_id": "order-H6nrGL-1777230766",
+    "order_token": "CC-0427-0766",
+    "pickup_status": "collected"
   }
 ]

@@ -6,11 +6,14 @@ import 'api_config.dart';
 
 class AdminService {
   static String get _baseUrl => ApiConfig.baseUrl;
+  static const Duration _adminTimeout = Duration(seconds: 8);
 
   Future<void> createMenuItem({
     required String name,
     required int price,
     required String category,
+    bool autoApprove = true,
+    String? requestedBy,
   }) async {
     final response = await http.post(
       Uri.parse('$_baseUrl/menu'),
@@ -19,6 +22,8 @@ class AdminService {
         'name': name,
         'price': price,
         'category': category,
+        'auto_approve': autoApprove,
+        'requested_by': requestedBy,
       }),
     );
 
@@ -28,31 +33,37 @@ class AdminService {
   }
 
   Future<List<Map<String, dynamic>>> getMenuPending() async {
-    final response = await http.get(Uri.parse('$_baseUrl/admin/menu-pending'));
+    final response = await http
+        .get(Uri.parse('$_baseUrl/admin/menu-pending'))
+        .timeout(_adminTimeout);
     if (response.statusCode != 200) {
-      throw Exception('Failed to load menu pending');
+      throw Exception('Failed to load menu pending: ${response.body}');
     }
     final data = json.decode(response.body) as List<dynamic>;
     return data.map((e) => Map<String, dynamic>.from(e)).toList();
   }
 
   Future<void> approveMenuItem(String id) async {
-    final response = await http.post(
-      Uri.parse('$_baseUrl/admin/menu-approve'),
-      headers: {'Content-Type': 'application/json'},
-      body: json.encode({'id': id}),
-    );
+    final response = await http
+        .post(
+          Uri.parse('$_baseUrl/admin/menu-approve'),
+          headers: {'Content-Type': 'application/json'},
+          body: json.encode({'id': id}),
+        )
+        .timeout(_adminTimeout);
     if (response.statusCode != 200) {
       throw Exception('Approve failed: ${response.body}');
     }
   }
 
   Future<void> rejectMenuItem(String id) async {
-    final response = await http.post(
-      Uri.parse('$_baseUrl/admin/menu-reject'),
-      headers: {'Content-Type': 'application/json'},
-      body: json.encode({'id': id}),
-    );
+    final response = await http
+        .post(
+          Uri.parse('$_baseUrl/admin/menu-reject'),
+          headers: {'Content-Type': 'application/json'},
+          body: json.encode({'id': id}),
+        )
+        .timeout(_adminTimeout);
     if (response.statusCode != 200) {
       throw Exception('Reject failed: ${response.body}');
     }

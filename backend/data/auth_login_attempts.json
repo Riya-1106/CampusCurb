@@ -598,5 +598,265 @@
     "selected_role": "college",
     "ip": "127.0.0.1",
     "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+  },
+  {
+    "timestamp": "2026-04-26T15:41:05.248908+00:00",
+    "email": "campuscurb30@gmail.com",
+    "method": "password",
+    "success": true,
+    "reason": "Login success",
+    "selected_role": "admin",
+    "ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+  },
+  {
+    "timestamp": "2026-04-26T16:13:53.840955+00:00",
+    "email": "sobinsabu206@student.sfit.ac.in",
+    "method": "password",
+    "success": true,
+    "reason": "Login success",
+    "selected_role": "student",
+    "ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+  },
+  {
+    "timestamp": "2026-04-26T16:18:24.540149+00:00",
+    "email": "vaztrisha49@sfit.ac.in",
+    "method": "password",
+    "success": false,
+    "reason": "invalid-credential",
+    "selected_role": "faculty",
+    "ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+  },
+  {
+    "timestamp": "2026-04-26T16:18:24.570801+00:00",
+    "email": "vaztrisha49@sfit.ac.in",
+    "method": "password",
+    "success": false,
+    "reason": "Unknown login failure",
+    "selected_role": "faculty",
+    "ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+  },
+  {
+    "timestamp": "2026-04-26T16:18:39.445463+00:00",
+    "email": "vaztrisha49@sfit.ac.in",
+    "method": "password",
+    "success": true,
+    "reason": "Login success",
+    "selected_role": "faculty",
+    "ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+  },
+  {
+    "timestamp": "2026-04-26T16:28:25.310190+00:00",
+    "email": "campuscurb30@gmail.com",
+    "method": "password",
+    "success": true,
+    "reason": "Login success",
+    "selected_role": "admin",
+    "ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+  },
+  {
+    "timestamp": "2026-04-26T16:58:43.807638+00:00",
+    "email": "vaztrisha49@sfit.ac.in",
+    "method": "password",
+    "success": true,
+    "reason": "Login success",
+    "selected_role": "faculty",
+    "ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+  },
+  {
+    "timestamp": "2026-04-26T18:00:55.258905+00:00",
+    "email": "campuscurb30@gmail.com",
+    "method": "password",
+    "success": true,
+    "reason": "Login success",
+    "selected_role": "admin",
+    "ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Mobile Safari/537.36"
+  },
+  {
+    "timestamp": "2026-04-26T18:03:45.511025+00:00",
+    "email": "sobinsabu206@student.sfit.ac.in",
+    "method": "password",
+    "success": true,
+    "reason": "Login success",
+    "selected_role": "student",
+    "ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Mobile Safari/537.36"
+  },
+  {
+    "timestamp": "2026-04-26T18:10:38.342267+00:00",
+    "email": "sobinsabu206@student.sfit.ac.in",
+    "method": "password",
+    "success": true,
+    "reason": "Login success",
+    "selected_role": "student",
+    "ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Linux; Android 8.0.0; SM-G955U Build/R16NW) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Mobile Safari/537.36"
+  },
+  {
+    "timestamp": "2026-04-26T18:12:15.282414+00:00",
+    "email": "campuscurb30@gmail.com",
+    "method": "password",
+    "success": true,
+    "reason": "Login success",
+    "selected_role": "admin",
+    "ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Linux; Android 8.0.0; SM-G955U Build/R16NW) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Mobile Safari/537.36"
+  },
+  {
+    "timestamp": "2026-04-26T18:18:40.045968+00:00",
+    "email": "vaztrisha49@sfit.ac.in",
+    "method": "password",
+    "success": false,
+    "reason": "Role mismatch. Actual: faculty, selected: student",
+    "selected_role": "student",
+    "ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Linux; Android 8.0.0; SM-G955U Build/R16NW) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Mobile Safari/537.36"
+  },
+  {
+    "timestamp": "2026-04-26T18:18:48.956944+00:00",
+    "email": "vaztrisha49@sfit.ac.in",
+    "method": "password",
+    "success": true,
+    "reason": "Login success",
+    "selected_role": "faculty",
+    "ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Linux; Android 8.0.0; SM-G955U Build/R16NW) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Mobile Safari/537.36"
+  },
+  {
+    "timestamp": "2026-04-26T19:10:30.226533+00:00",
+    "email": "vaztrisha49@sfit.ac.in",
+    "method": "password",
+    "success": true,
+    "reason": "Login success",
+    "selected_role": "faculty",
+    "ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Linux; Android 8.0.0; SM-G955U Build/R16NW) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Mobile Safari/537.36"
+  },
+  {
+    "timestamp": "2026-04-26T19:11:50.218306+00:00",
+    "email": "sobinsabu206@student.sfit.ac.in",
+    "method": "password",
+    "success": true,
+    "reason": "Login success",
+    "selected_role": "student",
+    "ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Linux; Android 8.0.0; SM-G955U Build/R16NW) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Mobile Safari/537.36"
+  },
+  {
+    "timestamp": "2026-04-26T19:13:47.736103+00:00",
+    "email": "campuscurb30@gmail.com",
+    "method": "password",
+    "success": true,
+    "reason": "Login success",
+    "selected_role": "admin",
+    "ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Linux; Android 8.0.0; SM-G955U Build/R16NW) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Mobile Safari/537.36"
+  },
+  {
+    "timestamp": "2026-04-26T19:48:17.144840+00:00",
+    "email": "campuscurb30@gmail.com",
+    "method": "password",
+    "success": true,
+    "reason": "Login success",
+    "selected_role": "admin",
+    "ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Linux; Android 8.0.0; SM-G955U Build/R16NW) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Mobile Safari/537.36"
+  },
+  {
+    "timestamp": "2026-04-26T19:49:37.687806+00:00",
+    "email": "dhruvdave0603@sft.ac.in",
+    "method": "password",
+    "success": false,
+    "reason": "invalid-credential",
+    "selected_role": "canteen",
+    "ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Linux; Android 8.0.0; SM-G955U Build/R16NW) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Mobile Safari/537.36"
+  },
+  {
+    "timestamp": "2026-04-26T19:49:37.719912+00:00",
+    "email": "dhruvdave0603@sft.ac.in",
+    "method": "password",
+    "success": false,
+    "reason": "Unknown login failure",
+    "selected_role": "canteen",
+    "ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Linux; Android 8.0.0; SM-G955U Build/R16NW) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Mobile Safari/537.36"
+  },
+  {
+    "timestamp": "2026-04-26T19:49:44.911003+00:00",
+    "email": "dhruvdave0603@sft.ac.in",
+    "method": "password",
+    "success": false,
+    "reason": "invalid-credential",
+    "selected_role": "canteen",
+    "ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Linux; Android 8.0.0; SM-G955U Build/R16NW) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Mobile Safari/537.36"
+  },
+  {
+    "timestamp": "2026-04-26T19:49:44.940651+00:00",
+    "email": "dhruvdave0603@sft.ac.in",
+    "method": "password",
+    "success": false,
+    "reason": "Unknown login failure",
+    "selected_role": "canteen",
+    "ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Linux; Android 8.0.0; SM-G955U Build/R16NW) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Mobile Safari/537.36"
+  },
+  {
+    "timestamp": "2026-04-26T19:50:38.606148+00:00",
+    "email": "dhruvdave0603@sfit.ac.in",
+    "method": "password",
+    "success": true,
+    "reason": "Login success",
+    "selected_role": "canteen",
+    "ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Linux; Android 8.0.0; SM-G955U Build/R16NW) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Mobile Safari/537.36"
+  },
+  {
+    "timestamp": "2026-04-26T20:04:07.335181+00:00",
+    "email": "dhruvdave0603@sfit.ac.in",
+    "method": "password",
+    "success": true,
+    "reason": "Login success",
+    "selected_role": "canteen",
+    "ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Linux; Android 8.0.0; SM-G955U Build/R16NW) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Mobile Safari/537.36"
+  },
+  {
+    "timestamp": "2026-04-26T20:12:51.087041+00:00",
+    "email": "dhruvdave0603@sfit.ac.in",
+    "method": "password",
+    "success": true,
+    "reason": "Login success",
+    "selected_role": "canteen",
+    "ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Linux; Android 8.0.0; SM-G955U Build/R16NW) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Mobile Safari/537.36"
+  },
+  {
+    "timestamp": "2026-04-26T20:12:52.865677+00:00",
+    "email": "dhruvdave0603@sfit.ac.in",
+    "method": "password",
+    "success": true,
+    "reason": "Login success",
+    "selected_role": "canteen",
+    "ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Linux; Android 8.0.0; SM-G955U Build/R16NW) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Mobile Safari/537.36"
+  },
+  {
+    "timestamp": "2026-04-26T20:28:05.386269+00:00",
+    "email": "dhruvdave0603@sfit.ac.in",
+    "method": "password",
+    "success": true,
+    "reason": "Login success",
+    "selected_role": "canteen",
+    "ip": "127.0.0.1",
+    "user_agent": "Mozilla/5.0 (Linux; Android 8.0.0; SM-G955U Build/R16NW) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Mobile Safari/537.36"
   }
 ]

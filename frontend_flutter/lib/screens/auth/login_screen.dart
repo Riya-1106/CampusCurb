@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../services/auth_service.dart';
 import '../../services/campus_service.dart';
 import '../../services/security_audit_service.dart';
 import '../student/student_shell.dart';
-import '../canteen/canteen_dashboard.dart';
-import '../faculty/faculty_dashboard.dart';
-import '../admin/admin_dashboard.dart';
+import '../canteen/canteen_shell.dart';
+import '../faculty/faculty_shell.dart';
+import '../admin/admin_shell.dart';
 import '../../utils/password_validator.dart';
 import 'college_access_screen.dart';
 
@@ -18,6 +19,7 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
+  static const String _cachedRoleKey = 'cached_user_role';
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final AuthService _authService = AuthService();
@@ -62,6 +64,10 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _routeByRole(String role) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_cachedRoleKey, role);
+    if (!mounted) return;
+
     if (role == 'student') {
       Navigator.pushReplacement(
         context,
@@ -70,17 +76,17 @@ class _LoginScreenState extends State<LoginScreen> {
     } else if (role == 'canteen') {
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (_) => const CanteenDashboard()),
+        MaterialPageRoute(builder: (_) => const CanteenShell()),
       );
     } else if (role == 'admin') {
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (_) => const AdminDashboard()),
+        MaterialPageRoute(builder: (_) => const AdminShell()),
       );
     } else {
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (_) => const FacultyDashboard()),
+        MaterialPageRoute(builder: (_) => const FacultyShell()),
       );
     }
   }

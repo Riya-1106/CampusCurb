@@ -17,7 +17,8 @@ class AdminDashboard extends StatefulWidget {
   State<AdminDashboard> createState() => _AdminDashboardState();
 }
 
-class _AdminDashboardState extends State<AdminDashboard> with TickerProviderStateMixin {
+class _AdminDashboardState extends State<AdminDashboard>
+    with TickerProviderStateMixin {
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
   late Animation<Offset> _slideAnimation;
@@ -33,23 +34,19 @@ class _AdminDashboardState extends State<AdminDashboard> with TickerProviderStat
       duration: const Duration(milliseconds: 1200),
       vsync: this,
     );
-    
-    _fadeAnimation = Tween<double>(
-      begin: 0.0,
-      end: 1.0,
-    ).animate(CurvedAnimation(
-      parent: _animationController,
-      curve: Curves.easeInOut,
-    ));
-    
-    _slideAnimation = Tween<Offset>(
-      begin: const Offset(0, 0.3),
-      end: Offset.zero,
-    ).animate(CurvedAnimation(
-      parent: _animationController,
-      curve: Curves.easeOutCubic,
-    ));
-    
+
+    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _animationController, curve: Curves.easeInOut),
+    );
+
+    _slideAnimation =
+        Tween<Offset>(begin: const Offset(0, 0.3), end: Offset.zero).animate(
+          CurvedAnimation(
+            parent: _animationController,
+            curve: Curves.easeOutCubic,
+          ),
+        );
+
     _animationController.forward();
     _loadDashboardData();
   }
@@ -266,14 +263,11 @@ class _AdminDashboardState extends State<AdminDashboard> with TickerProviderStat
             decoration: BoxDecoration(
               color: const Color(0xFFF3F4F6),
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: const Color(0xFFE5E7EB),
-                width: 1,
-              ),
+              border: Border.all(color: const Color(0xFFE5E7EB), width: 1),
             ),
             child: IconButton(
               icon: const Icon(
-                Icons.logout_rounded, 
+                Icons.logout_rounded,
                 color: Color(0xFF6B7280),
                 size: 22,
               ),
@@ -281,9 +275,9 @@ class _AdminDashboardState extends State<AdminDashboard> with TickerProviderStat
                 await AuthService().logout();
                 if (!mounted) return;
                 Navigator.pushReplacement(
-                    context,
-                    MaterialPageRoute(
-                        builder: (_) => const LoginScreen()));
+                  context,
+                  MaterialPageRoute(builder: (_) => const LoginScreen()),
+                );
               },
             ),
           ),
@@ -322,17 +316,47 @@ class _AdminDashboardState extends State<AdminDashboard> with TickerProviderStat
             ),
           ],
         ),
-        const SizedBox(height: 20),
+        const SizedBox(height: 14),
         SizedBox(
-          height: 130,
+          height: 102,
           child: ListView(
             scrollDirection: Axis.horizontal,
             children: [
-              _buildModernQuickAction(context, "Add User", Icons.person_add_rounded, const Color(0xFF10B981), null),
-              _buildModernQuickAction(context, "New Menu", Icons.add_circle_rounded, const Color(0xFF3B82F6), const MenuUploadScreen()),
-              _buildModernQuickAction(context, "View Reports", Icons.assessment_rounded, const Color(0xFF8B5CF6), const AdminAnalyticsScreen()),
-              _buildModernQuickAction(context, "Settings", Icons.settings_rounded, const Color(0xFFF59E0B), null),
-              _buildModernQuickAction(context, "Help", Icons.help_rounded, const Color(0xFFEF4444), null),
+              _buildModernQuickAction(
+                context,
+                "Add User",
+                Icons.person_add_rounded,
+                const Color(0xFF10B981),
+                null,
+              ),
+              _buildModernQuickAction(
+                context,
+                "New Menu",
+                Icons.add_circle_rounded,
+                const Color(0xFF3B82F6),
+                const MenuUploadScreen(),
+              ),
+              _buildModernQuickAction(
+                context,
+                "View Reports",
+                Icons.assessment_rounded,
+                const Color(0xFF8B5CF6),
+                const AdminAnalyticsScreen(),
+              ),
+              _buildModernQuickAction(
+                context,
+                "Settings",
+                Icons.settings_rounded,
+                const Color(0xFFF59E0B),
+                null,
+              ),
+              _buildModernQuickAction(
+                context,
+                "Help",
+                Icons.help_rounded,
+                const Color(0xFFEF4444),
+                null,
+              ),
             ],
           ),
         ),
@@ -367,10 +391,13 @@ class _AdminDashboardState extends State<AdminDashboard> with TickerProviderStat
       );
     }
 
-    final headline = impactSummary['headline']?.toString() ??
+    final headline =
+        impactSummary['headline']?.toString() ??
         'ML impact will appear here after the forecasting engine and canteen logs sync.';
-    final modelHealth = impactSummary['model_health']?.toString() ?? 'Not trained';
-    final dataReadiness = impactSummary['data_readiness']?.toString() ?? 'Waiting for live data';
+    final modelHealth =
+        impactSummary['model_health']?.toString() ?? 'Not trained';
+    final dataReadiness =
+        impactSummary['data_readiness']?.toString() ?? 'Waiting for live data';
 
     return _buildSectionShell(
       icon: Icons.insights_rounded,
@@ -451,35 +478,37 @@ class _AdminDashboardState extends State<AdminDashboard> with TickerProviderStat
                 ),
               ),
               const SizedBox(height: 10),
-              ...operatorActions.take(2).map(
-                (item) => Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Padding(
-                        padding: EdgeInsets.only(top: 2),
-                        child: Icon(
-                          Icons.check_circle_rounded,
-                          color: Colors.white,
-                          size: 18,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          item,
-                          style: const TextStyle(
-                            color: Color(0xFFE0F2FE),
-                            fontWeight: FontWeight.w600,
-                            height: 1.4,
+              ...operatorActions
+                  .take(2)
+                  .map(
+                    (item) => Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Padding(
+                            padding: EdgeInsets.only(top: 2),
+                            child: Icon(
+                              Icons.check_circle_rounded,
+                              color: Colors.white,
+                              size: 18,
+                            ),
                           ),
-                        ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              item,
+                              style: const TextStyle(
+                                color: Color(0xFFE0F2FE),
+                                fontWeight: FontWeight.w600,
+                                height: 1.4,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
+                    ),
                   ),
-                ),
-              ),
             ],
           ],
         ),
@@ -533,8 +562,10 @@ class _AdminDashboardState extends State<AdminDashboard> with TickerProviderStat
               runSpacing: 12,
               children: [
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
                   decoration: BoxDecoration(
                     color: statusColor.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(999),
@@ -564,7 +595,8 @@ class _AdminDashboardState extends State<AdminDashboard> with TickerProviderStat
               children: [
                 _buildDashboardInfoChip(
                   'Best Model',
-                  trainingStatus['best_model_name']?.toString() ?? 'Not trained',
+                  trainingStatus['best_model_name']?.toString() ??
+                      'Not trained',
                   const Color(0xFF3B82F6),
                 ),
                 _buildDashboardInfoChip(
@@ -585,20 +617,10 @@ class _AdminDashboardState extends State<AdminDashboard> with TickerProviderStat
               ],
             ),
             const SizedBox(height: 18),
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    'Open the reports screen to run retraining, view recent runs, and inspect any failure details.',
-                    style: const TextStyle(
-                      color: Color(0xFF6B7280),
-                      height: 1.5,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 16),
-                ElevatedButton.icon(
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final compact = constraints.maxWidth < 420;
+                final button = ElevatedButton.icon(
                   onPressed: () {
                     Navigator.push(
                       context,
@@ -609,8 +631,43 @@ class _AdminDashboardState extends State<AdminDashboard> with TickerProviderStat
                   },
                   icon: const Icon(Icons.open_in_new_rounded),
                   label: const Text('Open Training Controls'),
-                ),
-              ],
+                );
+
+                if (compact) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Open the reports screen to run retraining, view recent runs, and inspect any failure details.',
+                        style: TextStyle(
+                          color: Color(0xFF6B7280),
+                          height: 1.5,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      SizedBox(width: double.infinity, child: button),
+                    ],
+                  );
+                }
+
+                return Row(
+                  children: [
+                    const Expanded(
+                      child: Text(
+                        'Open the reports screen to run retraining, view recent runs, and inspect any failure details.',
+                        style: TextStyle(
+                          color: Color(0xFF6B7280),
+                          height: 1.5,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    button,
+                  ],
+                );
+              },
             ),
           ],
         ),
@@ -629,26 +686,27 @@ class _AdminDashboardState extends State<AdminDashboard> with TickerProviderStat
     final accuracySummary = Map<String, dynamic>.from(
       _mlOverviewData?['accuracy_summary'] as Map<String, dynamic>? ?? {},
     );
+    final width = MediaQuery.of(context).size.width;
+    final useSingleColumn = width < 440;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _buildSectionHeader(Icons.analytics_rounded, "Dashboard Overview"),
         const SizedBox(height: 20),
-        Row(
-          children: [
-            Expanded(
-              child: _buildModernStatCard(
+        if (useSingleColumn)
+          Column(
+            children: [
+              _buildModernStatCard(
                 "Forecast Coverage",
                 '${_toDouble(impactSummary['forecast_coverage_percentage']).toStringAsFixed(1)}%',
                 Icons.track_changes_rounded,
                 const Color(0xFF10B981),
-                badgeLabel: '${_toInt(demandSummary['items_forecasted'])}/${_toInt(demandSummary['active_menu_items'])} items',
+                badgeLabel:
+                    '${_toInt(demandSummary['items_forecasted'])}/${_toInt(demandSummary['active_menu_items'])} items',
               ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: _buildModernStatCard(
+              const SizedBox(height: 16),
+              _buildModernStatCard(
                 "Resolved Predictions",
                 '${_toInt(accuracySummary['resolved_predictions'])}',
                 Icons.verified_rounded,
@@ -656,14 +714,39 @@ class _AdminDashboardState extends State<AdminDashboard> with TickerProviderStat
                 badgeLabel:
                     '${_toDouble(accuracySummary['resolved_prediction_rate']).toStringAsFixed(1)}% matched',
               ),
-            ),
-          ],
-        ),
+            ],
+          )
+        else
+          Row(
+            children: [
+              Expanded(
+                child: _buildModernStatCard(
+                  "Forecast Coverage",
+                  '${_toDouble(impactSummary['forecast_coverage_percentage']).toStringAsFixed(1)}%',
+                  Icons.track_changes_rounded,
+                  const Color(0xFF10B981),
+                  badgeLabel:
+                      '${_toInt(demandSummary['items_forecasted'])}/${_toInt(demandSummary['active_menu_items'])} items',
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: _buildModernStatCard(
+                  "Resolved Predictions",
+                  '${_toInt(accuracySummary['resolved_predictions'])}',
+                  Icons.verified_rounded,
+                  const Color(0xFF3B82F6),
+                  badgeLabel:
+                      '${_toDouble(accuracySummary['resolved_prediction_rate']).toStringAsFixed(1)}% matched',
+                ),
+              ),
+            ],
+          ),
         const SizedBox(height: 16),
-        Row(
-          children: [
-            Expanded(
-              child: _buildModernStatCard(
+        if (useSingleColumn)
+          Column(
+            children: [
+              _buildModernStatCard(
                 "Waste Saved",
                 '${_toInt(impactSummary['waste_saved_units'])}',
                 Icons.eco_rounded,
@@ -671,10 +754,8 @@ class _AdminDashboardState extends State<AdminDashboard> with TickerProviderStat
                 badgeLabel:
                     '${_toDouble(impactSummary['waste_reduction_percentage']).toStringAsFixed(1)}% reduction',
               ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: _buildModernStatCard(
+              const SizedBox(height: 16),
+              _buildModernStatCard(
                 "Low Confidence Items",
                 '${_toInt(demandSummary['low_confidence_count'])}',
                 Icons.warning_amber_rounded,
@@ -682,9 +763,34 @@ class _AdminDashboardState extends State<AdminDashboard> with TickerProviderStat
                 badgeLabel:
                     '${_toDouble(impactSummary['low_confidence_rate']).toStringAsFixed(1)}% risk',
               ),
-            ),
-          ],
-        ),
+            ],
+          )
+        else
+          Row(
+            children: [
+              Expanded(
+                child: _buildModernStatCard(
+                  "Waste Saved",
+                  '${_toInt(impactSummary['waste_saved_units'])}',
+                  Icons.eco_rounded,
+                  const Color(0xFF8B5CF6),
+                  badgeLabel:
+                      '${_toDouble(impactSummary['waste_reduction_percentage']).toStringAsFixed(1)}% reduction',
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: _buildModernStatCard(
+                  "Low Confidence Items",
+                  '${_toInt(demandSummary['low_confidence_count'])}',
+                  Icons.warning_amber_rounded,
+                  const Color(0xFFF59E0B),
+                  badgeLabel:
+                      '${_toDouble(impactSummary['low_confidence_rate']).toStringAsFixed(1)}% risk',
+                ),
+              ),
+            ],
+          ),
       ],
     );
   }
@@ -726,7 +832,9 @@ class _AdminDashboardState extends State<AdminDashboard> with TickerProviderStat
           padding: EdgeInsets.zero,
           itemCount: 6,
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: MediaQuery.of(context).size.width < 600 ? 1 : (isWide ? 3 : 2),
+            crossAxisCount: MediaQuery.of(context).size.width < 600
+                ? 1
+                : (isWide ? 3 : 2),
             crossAxisSpacing: 16,
             mainAxisSpacing: 16,
             childAspectRatio: isWide ? 1.2 : 1.0,
@@ -738,42 +846,42 @@ class _AdminDashboardState extends State<AdminDashboard> with TickerProviderStat
                 "subtitle": "Manage all users",
                 "icon": Icons.group_rounded,
                 "color": const Color(0xFF10B981),
-                "screen": const UserManagementScreen()
+                "screen": const UserManagementScreen(),
               },
               {
                 "title": "Menu Approvals",
                 "subtitle": "Review & approve",
                 "icon": Icons.restaurant_rounded,
                 "color": const Color(0xFF3B82F6),
-                "screen": const MenuApprovalScreen()
+                "screen": const MenuApprovalScreen(),
               },
               {
                 "title": "Analytics",
                 "subtitle": "View insights",
                 "icon": Icons.analytics_rounded,
                 "color": const Color(0xFF8B5CF6),
-                "screen": const AdminAnalyticsScreen()
+                "screen": const AdminAnalyticsScreen(),
               },
               {
                 "title": "Food Exchange",
                 "subtitle": "Manage exchanges",
                 "icon": Icons.swap_horiz_rounded,
                 "color": const Color(0xFF4F46E5),
-                "screen": const FoodExchangeRequestsScreen()
+                "screen": const FoodExchangeRequestsScreen(),
               },
               {
                 "title": "Waste Tracking",
                 "subtitle": "Monitor waste",
                 "icon": Icons.delete_rounded,
                 "color": const Color(0xFFF59E0B),
-                "screen": const AdminWasteMonitoringScreen()
+                "screen": const AdminWasteMonitoringScreen(),
               },
               {
                 "title": "Security Logs",
                 "subtitle": "Login activity",
                 "icon": Icons.security_rounded,
                 "color": const Color(0xFF6B7280),
-                "screen": const LoginAttemptsScreen()
+                "screen": const LoginAttemptsScreen(),
               },
             ];
 
@@ -801,11 +909,7 @@ class _AdminDashboardState extends State<AdminDashboard> with TickerProviderStat
             color: const Color(0xFF4F46E5).withOpacity(0.1),
             borderRadius: BorderRadius.circular(8),
           ),
-          child: Icon(
-            icon,
-            color: const Color(0xFF4F46E5),
-            size: 20,
-          ),
+          child: Icon(icon, color: const Color(0xFF4F46E5), size: 20),
         ),
         const SizedBox(width: 12),
         Text(
@@ -929,7 +1033,7 @@ class _AdminDashboardState extends State<AdminDashboard> with TickerProviderStat
     Widget? screen,
   ) {
     return Container(
-      width: 100,
+      width: 92,
       margin: const EdgeInsets.only(right: 16),
       child: Material(
         color: Colors.transparent,
@@ -944,14 +1048,11 @@ class _AdminDashboardState extends State<AdminDashboard> with TickerProviderStat
                 },
           borderRadius: BorderRadius.circular(16),
           child: Container(
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                color: color.withOpacity(0.2),
-                width: 1,
-              ),
+              border: Border.all(color: color.withOpacity(0.2), width: 1),
               boxShadow: [
                 BoxShadow(
                   color: Colors.black.withOpacity(0.04),
@@ -965,23 +1066,19 @@ class _AdminDashboardState extends State<AdminDashboard> with TickerProviderStat
               mainAxisSize: MainAxisSize.min,
               children: [
                 Container(
-                  padding: const EdgeInsets.all(10),
+                  padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
                     color: color.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: Icon(
-                    icon,
-                    color: color,
-                    size: 22,
-                  ),
+                  child: Icon(icon, color: color, size: 22),
                 ),
                 const SizedBox(height: 8),
                 Flexible(
                   child: Text(
                     title,
                     style: const TextStyle(
-                      fontSize: 11,
+                      fontSize: 10.5,
                       fontWeight: FontWeight.w600,
                       color: Color(0xFF374151),
                     ),
@@ -1011,10 +1108,7 @@ class _AdminDashboardState extends State<AdminDashboard> with TickerProviderStat
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: const Color(0xFFE5E7EB),
-          width: 1,
-        ),
+        border: Border.all(color: const Color(0xFFE5E7EB), width: 1),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.04),
@@ -1026,26 +1120,27 @@ class _AdminDashboardState extends State<AdminDashboard> with TickerProviderStat
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: color.withOpacity(0.1),
+                  color: color.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: Icon(
-                  icon,
-                  color: color,
-                  size: 20,
-                ),
+                child: Icon(icon, color: color, size: 20),
               ),
-              const Spacer(),
               if (badgeLabel != null)
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
-                    color: color.withOpacity(0.1),
+                    color: color.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Text(
@@ -1095,20 +1190,14 @@ class _AdminDashboardState extends State<AdminDashboard> with TickerProviderStat
       color: Colors.transparent,
       child: InkWell(
         onTap: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => screen),
-          );
+          Navigator.push(context, MaterialPageRoute(builder: (_) => screen));
         },
         borderRadius: BorderRadius.circular(16),
         child: Container(
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: const Color(0xFFE5E7EB),
-              width: 1,
-            ),
+            border: Border.all(color: const Color(0xFFE5E7EB), width: 1),
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withOpacity(0.04),
@@ -1146,11 +1235,7 @@ class _AdminDashboardState extends State<AdminDashboard> with TickerProviderStat
                               ),
                             ],
                           ),
-                          child: Icon(
-                            icon,
-                            color: color,
-                            size: 32,
-                          ),
+                          child: Icon(icon, color: color, size: 32),
                         ),
                       ),
                       Positioned(

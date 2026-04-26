@@ -18,6 +18,10 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 
+# =====================================================
+# STEP 1 : DEFINE PATHS, FILES, AND GLOBAL ML SETTINGS
+# =====================================================
+
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
 MODELS_DIR = BASE_DIR / "models"
@@ -111,13 +115,26 @@ DEFAULT_ROW = {
 }
 
 DEFAULT_MENU_ITEMS = [
-    {"name": "Veg Wrap", "price": 80, "category": "snack"},
-    {"name": "Masala Dosa", "price": 50, "category": "breakfast"},
-    {"name": "Cheese Pizza", "price": 120, "category": "meal"},
+    {"name": "Coffee", "price": 66, "category": "beverage"},
+    {"name": "Tea", "price": 63, "category": "beverage"},
+    {"name": "Sandwich", "price": 66, "category": "fastfood"},
+    {"name": "Noodles", "price": 64, "category": "fastfood"},
+    {"name": "Burger", "price": 68, "category": "fastfood"},
+    {"name": "Pasta", "price": 67, "category": "fastfood"},
+    {"name": "Coke diet", "price": 40, "category": "beverage"},
 ]
 
 TIME_SLOTS = ["09:00-11:00", "11:00-13:00", "13:00-15:00", "15:00+"]
+OVERVIEW_CACHE_TTL_SECONDS = 45
+_OVERVIEW_CACHE: dict[str, Any] = {
+    "expires_at": None,
+    "payload": None,
+}
 
+
+# =====================================================
+# STEP 2 : READ / WRITE HELPERS FOR DATA AND ML STATUS
+# =====================================================
 
 def _safe_read_json(path: Path, default: Any) -> Any:
     if not path.exists():
@@ -188,6 +205,10 @@ def get_training_status() -> dict[str, Any]:
     return status
 
 
+# =====================================================
+# STEP 3 : NORMALIZE RAW VALUES USED ACROSS THE PIPELINE
+# =====================================================
+
 def _normalize_date(value: Any) -> str | None:
     raw = str(value or "").strip()
     if not raw:
@@ -239,6 +260,10 @@ def _infer_is_veg(name: str) -> int:
     non_veg_tokens = ["chicken", "egg", "mutton", "fish", "meat"]
     return 0 if any(token in normalized for token in non_veg_tokens) else 1
 
+
+# =====================================================
+# STEP 4 : LOAD AND CLEAN TRAINING / LIVE DATA SOURCES
+# =====================================================
 
 def _safe_read_dataset() -> pd.DataFrame:
     if not DATASET_PATH.exists():
@@ -408,6 +433,14 @@ def _dedupe_live_rows(df: pd.DataFrame) -> pd.DataFrame:
         return df
     return df.drop_duplicates(subset=keys, keep="last")
 
+
+def _log_lookup_key(target_date: Any, time_slot: Any, food_item: Any) -> str:
+    return f"{str(target_date or '').strip()}|{str(time_slot or '').strip()}|{_normalize_food_name(food_item)}"
+
+
+# =====================================================
+# STEP 5 : BUILD ITEM PROFILES AND TRAINING-READY ROWS
+# =====================================================
 
 def _item_profile(
     food_item: str,
@@ -664,6 +697,13 @@ def _build_live_training_rows(
     return pd.DataFrame(rows)
 
 
+# =====================================================
+# STEP 6 : BUILD THE PREPROCESSING PIPELINE
+# =====================================================
+# Numeric features  -> impute missing values + scale
+# Categorical data  -> impute missing values + one-hot encode
+# =====================================================
+
 def _build_preprocessor() -> ColumnTransformer:
     numeric_pipeline = Pipeline(
         steps=[
@@ -712,6 +752,10 @@ def _extract_top_features(fitted_pipeline: Pipeline, limit: int = 10) -> list[di
         for index in order
     ]
 
+
+# =====================================================
+# STEP 7 : TRAIN, EVALUATE, AND SAVE ML MODELS
+# =====================================================
 
 def train_models() -> dict[str, Any]:
     dataset_df = _safe_read_dataset()
@@ -833,6 +877,10 @@ def train_models() -> dict[str, Any]:
     return metrics_payload
 
 
+# =====================================================
+# STEP 8 : RUN A FULL TRAINING CYCLE AND TRACK STATUS
+# =====================================================
+
 def run_training_cycle(trigger: str = "manual") -> dict[str, Any]:
     started_at = datetime.now()
     current_status = get_training_status()
@@ -899,6 +947,10 @@ def run_training_cycle(trigger: str = "manual") -> dict[str, Any]:
         raise
 
 
+# =====================================================
+# STEP 9 : LOAD THE SAVED MODEL BUNDLE FOR PREDICTION
+# =====================================================
+
 def load_model_bundle() -> dict[str, Any]:
     if MODEL_BUNDLE_PATH.exists():
         try:
@@ -931,6 +983,13 @@ def _series_average(series: pd.Series) -> float:
 def _clamp(value: float, lower: float, upper: float) -> float:
     return max(lower, min(upper, value))
 
+
+# =====================================================
+# STEP 10 : FEATURE ENGINEERING FOR LIVE PREDICTION
+# =====================================================
+# This is the main feature-construction block used by
+# the project before inference happens.
+# =====================================================
 
 def build_live_feature_payload(
     input_data: dict[str, Any],
@@ -1212,6 +1271,10 @@ def build_live_feature_payload(
     return {"features": features, "meta": meta}
 
 
+# =====================================================
+# STEP 11 : RUN LIVE DEMAND PREDICTION USING THE MODEL
+# =====================================================
+
 def predict_live_demand(
     input_data: dict[str, Any],
     *,
@@ -1323,6 +1386,10 @@ def predict_live_demand(
 
     return result
 
+
+# =====================================================
+# STEP 12 : BUILD FORECASTS AND DASHBOARD OUTPUTS
+# =====================================================
 
 def get_forecast_menu_items(limit: int | None = None) -> list[dict[str, Any]]:
     menu_rows = _safe_read_menu()
@@ -1453,6 +1520,10 @@ def generate_forecast_rows(days_ahead: int = 1) -> list[dict[str, Any]]:
     return rows
 
 
+# =====================================================
+# STEP 13 : EXPOSE TRAINING METRICS AND PREDICTION LOGS
+# =====================================================
+
 def get_training_metrics() -> dict[str, Any]:
     return _safe_read_json(TRAINING_METRICS_PATH, {})
 
@@ -1475,48 +1546,65 @@ def resolve_prediction_logs() -> list[dict[str, Any]]:
     today_key = datetime.now().strftime("%Y-%m-%d")
     resolved_rows = []
 
+    operations_lookup: dict[str, dict[str, int]] = {}
+    if not operations_df.empty:
+        grouped_operations = (
+            operations_df.groupby(["date", "time_slot", "food_item"], dropna=False)
+            .agg(
+                quantity_sold=("quantity_sold", "sum"),
+                quantity_prepared=("quantity_prepared", "sum"),
+                quantity_wasted=("quantity_wasted", "sum"),
+            )
+            .reset_index()
+        )
+        for _, row in grouped_operations.iterrows():
+            operations_lookup[_log_lookup_key(row["date"], row["time_slot"], row["food_item"])] = {
+                "quantity_sold": int(row["quantity_sold"] or 0),
+                "quantity_prepared": int(row["quantity_prepared"] or 0),
+                "quantity_wasted": int(row["quantity_wasted"] or 0),
+            }
+
+    orders_lookup: dict[str, int] = {}
+    if not orders_df.empty:
+        grouped_orders = (
+            orders_df.groupby(["date", "time_slot", "food_item"], dropna=False)
+            .agg(quantity=("quantity", "sum"))
+            .reset_index()
+        )
+        for _, row in grouped_orders.iterrows():
+            orders_lookup[_log_lookup_key(row["date"], row["time_slot"], row["food_item"])] = int(
+                row["quantity"] or 0
+            )
+
     for row in rows:
         resolved = dict(row)
         target_date = str(resolved.get("target_date", "")).strip()
         time_slot = str(resolved.get("time_slot", "")).strip()
         food_item = _normalize_food_name(resolved.get("food_item"))
+        lookup_key = _log_lookup_key(target_date, time_slot, food_item)
 
         actual_sold = resolved.get("actual_sold")
         if actual_sold in (None, "", "null"):
             actual_value = None
-            if not operations_df.empty and target_date and time_slot and food_item:
-                matches = operations_df[
-                    (operations_df["date"] == target_date)
-                    & (operations_df["time_slot"] == time_slot)
-                    & (operations_df["food_item"].astype(str).str.lower() == food_item)
-                ]
-                if not matches.empty:
-                    actual_value = int(matches["quantity_sold"].sum())
-                elif target_date < today_key:
+            operation_match = operations_lookup.get(lookup_key)
+            if operation_match is not None and target_date and time_slot and food_item:
+                actual_value = int(operation_match["quantity_sold"])
+                if actual_value == 0 and target_date < today_key:
                     actual_value = 0
-            elif not orders_df.empty and target_date and time_slot and food_item:
-                matches = orders_df[
-                    (orders_df["date"] == target_date)
-                    & (orders_df["time_slot"] == time_slot)
-                    & (orders_df["food_item"].astype(str).str.lower() == food_item)
-                ]
-                if not matches.empty:
-                    actual_value = int(matches["quantity"].sum())
+            elif target_date and time_slot and food_item:
+                order_quantity = orders_lookup.get(lookup_key)
+                if order_quantity is not None:
+                    actual_value = int(order_quantity)
                 elif target_date < today_key:
                     actual_value = 0
             resolved["actual_sold"] = actual_value
 
-        if target_date and time_slot and food_item and not operations_df.empty:
-            matches = operations_df[
-                (operations_df["date"] == target_date)
-                & (operations_df["time_slot"] == time_slot)
-                & (operations_df["food_item"].astype(str).str.lower() == food_item)
-            ]
-            if not matches.empty:
-                if resolved.get("actual_prepared") in (None, "", "null"):
-                    resolved["actual_prepared"] = int(matches["quantity_prepared"].sum())
-                if resolved.get("actual_wasted") in (None, "", "null"):
-                    resolved["actual_wasted"] = int(matches["quantity_wasted"].sum())
+        operation_match = operations_lookup.get(lookup_key)
+        if operation_match is not None:
+            if resolved.get("actual_prepared") in (None, "", "null"):
+                resolved["actual_prepared"] = int(operation_match["quantity_prepared"])
+            if resolved.get("actual_wasted") in (None, "", "null"):
+                resolved["actual_wasted"] = int(operation_match["quantity_wasted"])
 
         if (
             resolved.get("actual_wasted") in (None, "", "null")
@@ -1548,6 +1636,10 @@ def resolve_prediction_logs() -> list[dict[str, Any]]:
     )
     return resolved_rows
 
+
+# =====================================================
+# STEP 14 : EVALUATE MODEL PERFORMANCE WITH LIVE RESULTS
+# =====================================================
 
 def compute_prediction_accuracy_summary(top_n: int = 5) -> dict[str, Any]:
     logs = resolve_prediction_logs()
@@ -1698,78 +1790,14 @@ def compute_waste_summary() -> dict[str, Any]:
             "note": "Waste summary is based on canteen preparation logs matched with ML recommendations and actual sales.",
         }
 
-    dataset_df = _safe_read_dataset()
-    if dataset_df.empty:
-        return {
-            "total_food_prepared": 0,
-            "total_food_sold": 0,
-            "total_food_wasted": 0,
-            "waste_percentage": 0.0,
-            "estimated_waste_after_ml": 0,
-            "estimated_reduction": 0,
-            "baseline_waste": 0,
-            "prediction_count_used": 0,
-            "note": "No resolved prediction logs or dataset rows are available yet.",
-        }
-
-    dashboard = build_demand_dashboard(log_request=False)
-    dashboard_rows = dashboard.get("dashboard", [])
-    if dashboard_rows:
+    operations_df = _safe_read_operations()
+    if not operations_df.empty and {"food_item", "quantity_prepared", "quantity_sold", "quantity_wasted"}.issubset(operations_df.columns):
         item_breakdown = []
-        for row in dashboard_rows:
-            prepared = int(row.get("suggested_preparation") or 0)
-            sold = int(round(float(row.get("expected_demand_anchor") or row.get("predicted_demand") or 0)))
-            wasted = int(row.get("expected_waste") or max(prepared - sold, 0))
-            historical_prepared = int(row.get("historical_preparation_average") or prepared)
-            baseline_waste = max(historical_prepared - sold, 0)
-            item_breakdown.append(
-                {
-                    "food_item": row.get("food_item", "Unknown"),
-                    "prepared": prepared,
-                    "sold": sold,
-                    "wasted": wasted,
-                    "waste_percentage": round((wasted / prepared * 100) if prepared else 0.0, 2),
-                    "baseline_waste": baseline_waste,
-                    "saved_units": max(baseline_waste - wasted, 0),
-                }
-            )
-        item_breakdown.sort(key=lambda item: item["wasted"], reverse=True)
-
-        total_prepared = sum(int(row.get("suggested_preparation") or 0) for row in dashboard_rows)
-        total_sold = sum(int(round(float(row.get("expected_demand_anchor") or row.get("predicted_demand") or 0))) for row in dashboard_rows)
-        total_wasted = sum(int(row.get("expected_waste") or 0) for row in dashboard_rows)
-        baseline_waste = sum(
-            max(
-                int(row.get("historical_preparation_average") or row.get("suggested_preparation") or 0)
-                - int(round(float(row.get("expected_demand_anchor") or row.get("predicted_demand") or 0))),
-                0,
-            )
-            for row in dashboard_rows
-        )
-        estimated_reduction = max(baseline_waste - total_wasted, 0)
-        waste_percentage = (total_wasted / total_prepared * 100) if total_prepared else 0.0
-        sell_through_percentage = (total_sold / total_prepared * 100) if total_prepared else 0.0
-        return {
-            "total_food_prepared": int(total_prepared),
-            "total_food_sold": int(total_sold),
-            "total_food_wasted": int(total_wasted),
-            "waste_percentage": round(float(waste_percentage), 2),
-            "sell_through_percentage": round(float(sell_through_percentage), 2),
-            "estimated_waste_after_ml": int(total_wasted),
-            "estimated_reduction": int(estimated_reduction),
-            "baseline_waste": int(baseline_waste),
-            "prediction_count_used": 0,
-            "item_waste_breakdown": item_breakdown[:10],
-            "note": "Waste summary is currently forecast-based because resolved canteen actuals are still limited.",
-        }
-
-    item_breakdown = []
-    if not dataset_df.empty and {"food_item", "quantity_prepared", TARGET_COLUMN, "quantity_wasted"}.issubset(dataset_df.columns):
         grouped = (
-            dataset_df.groupby("food_item", dropna=False)
+            operations_df.groupby("food_item", dropna=False)
             .agg(
                 prepared=("quantity_prepared", "sum"),
-                sold=(TARGET_COLUMN, "sum"),
+                sold=("quantity_sold", "sum"),
                 wasted=("quantity_wasted", "sum"),
             )
             .reset_index()
@@ -1791,26 +1819,43 @@ def compute_waste_summary() -> dict[str, Any]:
             )
         item_breakdown.sort(key=lambda item: item["wasted"], reverse=True)
 
-    total_prepared = int(pd.to_numeric(dataset_df["quantity_prepared"], errors="coerce").fillna(0).sum())
-    total_sold = int(pd.to_numeric(dataset_df[TARGET_COLUMN], errors="coerce").fillna(0).sum())
-    total_wasted = int(pd.to_numeric(dataset_df["quantity_wasted"], errors="coerce").fillna(0).sum())
-    waste_percentage = (total_wasted / total_prepared * 100) if total_prepared else 0.0
-    sell_through_percentage = (total_sold / total_prepared * 100) if total_prepared else 0.0
-    estimated_reduction = int(round(total_wasted * 0.15))
+        total_prepared = int(pd.to_numeric(operations_df["quantity_prepared"], errors="coerce").fillna(0).sum())
+        total_sold = int(pd.to_numeric(operations_df["quantity_sold"], errors="coerce").fillna(0).sum())
+        total_wasted = int(pd.to_numeric(operations_df["quantity_wasted"], errors="coerce").fillna(0).sum())
+        waste_percentage = (total_wasted / total_prepared * 100) if total_prepared else 0.0
+        sell_through_percentage = (total_sold / total_prepared * 100) if total_prepared else 0.0
+        return {
+            "total_food_prepared": int(total_prepared),
+            "total_food_sold": int(total_sold),
+            "total_food_wasted": int(total_wasted),
+            "waste_percentage": round(float(waste_percentage), 2),
+            "sell_through_percentage": round(float(sell_through_percentage), 2),
+            "estimated_waste_after_ml": int(total_wasted),
+            "estimated_reduction": 0,
+            "baseline_waste": int(total_wasted),
+            "prediction_count_used": 0,
+            "item_waste_breakdown": item_breakdown[:10],
+            "note": "Waste summary is using live canteen operations. ML impact will appear after prediction logs are matched with actuals.",
+        }
+
     return {
-        "total_food_prepared": total_prepared,
-        "total_food_sold": total_sold,
-        "total_food_wasted": total_wasted,
-        "waste_percentage": round(float(waste_percentage), 2),
-        "sell_through_percentage": round(float(sell_through_percentage), 2),
-        "estimated_waste_after_ml": max(total_wasted - estimated_reduction, 0),
-        "estimated_reduction": estimated_reduction,
-        "baseline_waste": total_wasted,
+        "total_food_prepared": 0,
+        "total_food_sold": 0,
+        "total_food_wasted": 0,
+        "waste_percentage": 0.0,
+        "sell_through_percentage": 0.0,
+        "estimated_waste_after_ml": 0,
+        "estimated_reduction": 0,
+        "baseline_waste": 0,
         "prediction_count_used": 0,
-        "item_waste_breakdown": item_breakdown[:10],
-        "note": "Waste summary is currently using the historical dataset because live resolved predictions are not available yet.",
+        "item_waste_breakdown": [],
+        "note": "No live canteen operations or resolved prediction logs are available yet.",
     }
 
+
+# =====================================================
+# STEP 15 : BUILD TREND AND OVERVIEW ANALYTICS FOR ML UI
+# =====================================================
 
 def _format_trend_label(value: Any) -> str:
     parsed = pd.to_datetime(value, errors="coerce")
@@ -1901,6 +1946,50 @@ def build_confidence_trend(limit: int = 7) -> list[dict[str, Any]]:
     ]
 
 
+def build_accuracy_trend(limit: int = 7) -> list[dict[str, Any]]:
+    resolved_logs = [
+        log
+        for log in resolve_prediction_logs()
+        if log.get("actual_sold") is not None and log.get("accuracy_percentage") is not None
+    ]
+    if not resolved_logs:
+        return []
+
+    frame = pd.DataFrame(
+        [
+            {
+                "target_date": log.get("target_date"),
+                "accuracy_percentage": float(log.get("accuracy_percentage") or 0),
+            }
+            for log in resolved_logs
+            if log.get("target_date")
+        ]
+    )
+    if frame.empty:
+        return []
+
+    grouped = (
+        frame.groupby("target_date", dropna=False)
+        .agg(
+            average_accuracy=("accuracy_percentage", "mean"),
+            sample_count=("accuracy_percentage", "count"),
+        )
+        .reset_index()
+        .sort_values(by="target_date")
+        .tail(limit)
+    )
+
+    return [
+        {
+            "label": _format_trend_label(row["target_date"]),
+            "target_date": str(row["target_date"]),
+            "average_accuracy": round(float(row["average_accuracy"]), 2),
+            "sample_count": int(row["sample_count"]),
+        }
+        for _, row in grouped.iterrows()
+    ]
+
+
 def build_waste_reduction_trend(limit: int = 7) -> list[dict[str, Any]]:
     resolved_logs = [
         log for log in resolve_prediction_logs() if log.get("actual_sold") is not None
@@ -1965,10 +2054,128 @@ def build_waste_reduction_trend(limit: int = 7) -> list[dict[str, Any]]:
     ]
 
 
+def _latest_demand_dashboard_snapshot() -> dict[str, Any]:
+    raw_logs = _safe_read_prediction_logs()
+    if not raw_logs:
+        return {
+            "dashboard": [],
+            "summary": {
+                "items_forecasted": 0,
+                "active_menu_items": len(_safe_read_menu()),
+                "total_predicted_demand": 0,
+                "total_suggested_preparation": 0,
+                "estimated_total_waste": 0,
+                "average_confidence": 0.0,
+                "highest_demand_item": "N/A",
+                "low_confidence_count": 0,
+                "target_date": None,
+                "generated_at": None,
+                "time_slot": None,
+            },
+            "low_confidence_items": [],
+            "menu_basis": {
+                "source": "active_menu",
+                "items": _safe_read_menu(),
+            },
+            "formula": "Latest logged predictions are shown here. Run forecasts or demand dashboard generation to refresh this view.",
+            "example": "Live overview updates from logged predictions instead of rebuilding a fresh forecast on every admin page load.",
+            "model": {
+                "name": load_model_bundle().get("best_model_name", "Heuristic fallback"),
+                "trained_at": get_training_metrics().get("trained_at"),
+            },
+        }
+
+    candidate_logs = [
+        row for row in raw_logs
+        if isinstance(row, dict)
+        and str(row.get("food_item", "")).strip()
+        and str(row.get("source", "")).strip() in {"demand_dashboard", "predict_endpoint", "forecast_generation"}
+    ]
+    if not candidate_logs:
+        candidate_logs = [row for row in raw_logs if isinstance(row, dict)]
+
+    latest_logged_at = max(str(row.get("logged_at", "")) for row in candidate_logs)
+    latest_rows = [
+        dict(row)
+        for row in candidate_logs
+        if str(row.get("logged_at", "")) == latest_logged_at
+    ]
+
+    if not latest_rows:
+        latest_rows = [dict(candidate_logs[-1])]
+
+    latest_target_date = str(latest_rows[0].get("target_date", "") or "")
+    latest_time_slot = str(latest_rows[0].get("time_slot", "") or "")
+    if latest_target_date or latest_time_slot:
+        latest_rows = [
+            dict(row)
+            for row in candidate_logs
+            if str(row.get("target_date", "") or "") == latest_target_date
+            and str(row.get("time_slot", "") or "") == latest_time_slot
+        ]
+
+    deduped_rows: dict[str, dict[str, Any]] = {}
+    for row in latest_rows:
+        food_key = _normalize_food_name(row.get("food_item"))
+        existing = deduped_rows.get(food_key)
+        if existing is None or str(row.get("logged_at", "")) > str(existing.get("logged_at", "")):
+            deduped_rows[food_key] = row
+
+    dashboard_rows = sorted(
+        deduped_rows.values(),
+        key=lambda item: float(item.get("predicted_demand") or 0),
+        reverse=True,
+    )
+    total_predicted = sum(int(item.get("predicted_demand") or 0) for item in dashboard_rows)
+    total_preparation = sum(int(item.get("suggested_preparation") or 0) for item in dashboard_rows)
+    low_confidence_items = [
+        item for item in dashboard_rows if str(item.get("confidence_label", "")).strip().lower() == "low"
+    ]
+    average_confidence = round(
+        float(np.mean([float(item.get("confidence_score") or 0) for item in dashboard_rows])) if dashboard_rows else 0.0,
+        2,
+    )
+    active_menu_items = len(_safe_read_menu())
+
+    return {
+        "dashboard": dashboard_rows,
+        "summary": {
+            "items_forecasted": len(dashboard_rows),
+            "active_menu_items": active_menu_items,
+            "total_predicted_demand": total_predicted,
+            "total_suggested_preparation": total_preparation,
+            "estimated_total_waste": max(total_preparation - total_predicted, 0),
+            "average_confidence": average_confidence,
+            "highest_demand_item": dashboard_rows[0]["food_item"] if dashboard_rows else "N/A",
+            "low_confidence_count": len(low_confidence_items),
+            "target_date": latest_target_date or None,
+            "generated_at": latest_logged_at or None,
+            "time_slot": latest_time_slot or None,
+        },
+        "low_confidence_items": [item.get("food_item", "Unknown") for item in low_confidence_items],
+        "menu_basis": {
+            "source": "active_menu",
+            "items": _safe_read_menu(),
+        },
+        "formula": "Latest logged predictions are shown here. Run forecasts or demand dashboard generation to refresh this view.",
+        "example": "Live overview updates from logged predictions instead of rebuilding a fresh forecast on every admin page load.",
+        "model": {
+            "name": load_model_bundle().get("best_model_name", "Heuristic fallback"),
+            "trained_at": get_training_metrics().get("trained_at"),
+        },
+    }
+
+
 def build_ml_system_overview() -> dict[str, Any]:
     training_metrics = get_training_metrics()
     training_status = get_training_status()
-    demand = build_demand_dashboard(log_request=False)
+    now = datetime.now()
+    expires_at = _OVERVIEW_CACHE.get("expires_at")
+    cached_payload = _OVERVIEW_CACHE.get("payload")
+    if isinstance(expires_at, datetime) and expires_at > now and isinstance(cached_payload, dict):
+        return cached_payload
+
+    demand = _latest_demand_dashboard_snapshot()
     accuracy = compute_prediction_accuracy_summary()
     waste = compute_waste_summary()
     demand_summary = demand.get("summary", {})
@@ -2066,8 +2273,9 @@ def build_ml_system_overview() -> dict[str, Any]:
     predicted_vs_actual_trend = build_predicted_vs_actual_trend()
     waste_reduction_trend = build_waste_reduction_trend()
     confidence_trend = build_confidence_trend()
+    accuracy_trend = build_accuracy_trend()
 
-    return {
+    payload = {
         "training": training_metrics,
         "training_status": training_status,
         "demand_summary": demand_summary,
@@ -2104,5 +2312,9 @@ def build_ml_system_overview() -> dict[str, Any]:
             "predicted_vs_actual": predicted_vs_actual_trend,
             "waste_reduction": waste_reduction_trend,
             "confidence": confidence_trend,
+            "accuracy": accuracy_trend,
         },
     }
+    _OVERVIEW_CACHE["payload"] = payload
+    _OVERVIEW_CACHE["expires_at"] = now + timedelta(seconds=OVERVIEW_CACHE_TTL_SECONDS)
+    return payload

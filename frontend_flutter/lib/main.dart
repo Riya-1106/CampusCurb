@@ -1,15 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'firebase_options.dart';
 
 import 'screens/auth/login_screen.dart';
 import 'screens/landing/landing_screen.dart';
 import 'screens/student/student_shell.dart';
-import 'screens/canteen/canteen_dashboard.dart';
+import 'screens/canteen/canteen_shell.dart';
 import 'screens/college/college_dashboard.dart';
-import 'screens/faculty/faculty_dashboard.dart';
-import 'screens/admin/admin_dashboard.dart';
+import 'screens/faculty/faculty_shell.dart';
+import 'screens/admin/admin_shell.dart';
 import 'services/notification_service.dart';
 import 'services/campus_service.dart';
 
@@ -63,8 +64,76 @@ class AuthWrapper extends StatelessWidget {
   }
 }
 
-class RoleBasedRouter extends StatelessWidget {
+class RoleBasedRouter extends StatefulWidget {
   const RoleBasedRouter({super.key});
+
+  @override
+  State<RoleBasedRouter> createState() => _RoleBasedRouterState();
+}
+
+class _RoleBasedRouterState extends State<RoleBasedRouter> {
+  static const String _cachedRoleKey = 'cached_user_role';
+  String? _cachedRole;
+  bool _profileResolved = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCachedRole();
+    _refreshProfileRole();
+  }
+
+  Future<void> _loadCachedRole() async {
+    final prefs = await SharedPreferences.getInstance();
+    final role = prefs.getString(_cachedRoleKey);
+    if (!mounted) return;
+    setState(() {
+      _cachedRole = role;
+    });
+  }
+
+  Future<void> _refreshProfileRole() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      if (!mounted) return;
+      setState(() {
+        _profileResolved = true;
+      });
+      return;
+    }
+
+    final profile = await CampusService().getCurrentProfile();
+    final role = profile?['role']?.toString().toLowerCase();
+    if (role != null && role.isNotEmpty) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_cachedRoleKey, role);
+    }
+
+    if (!mounted) return;
+    setState(() {
+      if (role != null && role.isNotEmpty) {
+        _cachedRole = role;
+      }
+      _profileResolved = true;
+    });
+  }
+
+  Widget _screenForRole(String role) {
+    switch (role) {
+      case 'student':
+        return const StudentShell();
+      case 'canteen':
+        return const CanteenShell();
+      case 'admin':
+        return const AdminShell();
+      case 'faculty':
+        return const FacultyShell();
+      case 'college':
+        return const CollegeDashboard();
+      default:
+        return const LoginScreen();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -73,36 +142,14 @@ class RoleBasedRouter extends StatelessWidget {
       return const LoginScreen();
     }
 
-    return FutureBuilder<Map<String, dynamic>?>(
-      future: CampusService().getCurrentProfile(),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Scaffold(
-            body: Center(child: CircularProgressIndicator()),
-          );
-        }
+    if (_cachedRole != null && _cachedRole!.isNotEmpty) {
+      return _screenForRole(_cachedRole!);
+    }
 
-        final data = snapshot.data;
-        if (data == null || !data.containsKey('role')) {
-          return const LoginScreen();
-        }
+    if (!_profileResolved) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
 
-        final role = data['role'];
-
-        if (role == 'student') {
-          return const StudentShell();
-        } else if (role == 'canteen') {
-          return const CanteenDashboard();
-        } else if (role == 'admin') {
-          return const AdminDashboard();
-        } else if (role == 'faculty') {
-          return const FacultyDashboard();
-        } else if (role == 'college') {
-          return const CollegeDashboard();
-        } else {
-          return const LoginScreen();
-        }
-      },
-    );
+    return const LoginScreen();
   }
 }

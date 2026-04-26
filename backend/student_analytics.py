@@ -1,27 +1,41 @@
 """Analytics utilities for student behavior and prediction accuracy."""
 
 import json
-import os
 from pathlib import Path
 
 import pandas as pd
 
-from firebase_connect import db
 from ml_pipeline import compute_prediction_accuracy_summary
 
 
 BASE_DIR = Path(__file__).resolve().parent
 ORDERS_FILE = BASE_DIR / "data" / "orders.json"
-DATASET_FILE = BASE_DIR / "models" / "food_demand_dataset.csv"
-
-
-def _safe_read_dataset() -> pd.DataFrame:
-    if not DATASET_FILE.exists():
-        return pd.DataFrame()
-    try:
-        return pd.read_csv(DATASET_FILE)
-    except Exception:
-        return pd.DataFrame()
+def _empty_student_analytics(note: str | None = None) -> dict:
+    payload = {
+        "most_popular_food": {},
+        "most_ordered_food": {"name": "N/A", "orders": 0},
+        "food_rankings": [],
+        "peak_order_time": None,
+        "peak_order_time_details": {"slot": None, "orders": 0},
+        "veg_preference": "0.0%",
+        "veg_vs_non_veg_ratio": {
+            "veg_count": 0,
+            "non_veg_count": 0,
+            "veg_percentage": 0.0,
+            "non_veg_percentage": 0.0,
+            "display": "N/A",
+        },
+        "top_students": {},
+        "top_students_list": [],
+        "total_orders": 0,
+        "data_sources": {
+            "local_orders_used": False,
+            "dataset_used": False,
+        },
+    }
+    if note:
+        payload["note"] = note
+    return payload
 
 
 def _safe_read_local_orders() -> pd.DataFrame:
@@ -57,17 +71,6 @@ def _normalize_order_frame(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def _safe_read_firestore(collection_name: str, timeout_seconds: float = 1.5) -> pd.DataFrame:
-    try:
-        docs = db.collection(collection_name).stream(timeout=timeout_seconds)
-        rows = [doc.to_dict() for doc in docs]
-    except Exception:
-        return pd.DataFrame()
-    if not rows:
-        return pd.DataFrame()
-    return _normalize_order_frame(pd.DataFrame(rows))
-
-
 def _hour_to_slot(hour):
     if pd.isna(hour):
         return None
@@ -94,21 +97,20 @@ def _top_counts(df: pd.DataFrame, column: str, top_n: int) -> tuple[dict, list]:
     return as_dict, as_list
 
 
-def _build_veg_ratio(order_df: pd.DataFrame, dataset_df: pd.DataFrame) -> dict:
+def _infer_is_veg_from_name(name: str) -> int:
+    normalized = str(name or "").strip().lower()
+    non_veg_tokens = ["chicken", "egg", "mutton", "fish", "meat"]
+    return 0 if any(token in normalized for token in non_veg_tokens) else 1
+
+
+def _build_veg_ratio(order_df: pd.DataFrame) -> dict:
     analysis_df = pd.DataFrame()
 
     if _has_series(order_df, "is_veg"):
         analysis_df = order_df[["is_veg"]].copy()
-    elif _has_series(order_df, "food_item") and _has_series(dataset_df, "food_item") and _has_series(dataset_df, "is_veg"):
-        inferred = dataset_df[["food_item", "is_veg"]].dropna().copy()
-        if not inferred.empty:
-            inferred["is_veg"] = pd.to_numeric(inferred["is_veg"], errors="coerce")
-            inferred = inferred.dropna(subset=["is_veg"])
-            mapping = inferred.groupby("food_item")["is_veg"].agg(lambda values: int(round(values.mean()))).to_dict()
-            analysis_df = order_df[["food_item"]].copy()
-            analysis_df["is_veg"] = analysis_df["food_item"].map(mapping)
-    elif _has_series(dataset_df, "is_veg"):
-        analysis_df = dataset_df[["is_veg"]].copy()
+    elif _has_series(order_df, "food_item"):
+        analysis_df = order_df[["food_item"]].copy()
+        analysis_df["is_veg"] = analysis_df["food_item"].apply(_infer_is_veg_from_name)
 
     if analysis_df.empty or analysis_df["is_veg"].dropna().empty:
         return {
@@ -136,79 +138,60 @@ def _build_veg_ratio(order_df: pd.DataFrame, dataset_df: pd.DataFrame) -> dict:
 
 
 def student_behavior(top_n: int = 5):
-    """Return student ordering analytics using existing order and dataset data."""
+    """Return student ordering analytics using live order history only."""
+    try:
+        order_df = _safe_read_local_orders()
+        if order_df.empty:
+            return _empty_student_analytics(
+                "No live order history is available yet. Student analytics will appear after students start placing orders."
+            )
 
-    order_df = _safe_read_local_orders()
-    if order_df.empty:
-        order_df = _safe_read_firestore("orders")
+        most_popular_food, food_rankings = _top_counts(order_df, "food_item", top_n)
+        top_students, top_students_list = _top_counts(order_df, "student_id", top_n)
 
-    dataset_df = _safe_read_dataset()
-    base_food_df = order_df if _has_series(order_df, "food_item") else dataset_df
-    base_time_df = order_df if _has_series(order_df, "time_slot") else dataset_df
+        peak_order_time = None
+        peak_order_time_details = {"slot": None, "orders": 0}
+        if _has_series(order_df, "time_slot"):
+            slot_counts = order_df["time_slot"].astype(str).value_counts()
+            peak_order_time = str(slot_counts.idxmax())
+            peak_order_time_details = {
+                "slot": peak_order_time,
+                "orders": int(slot_counts.iloc[0]),
+            }
 
-    if base_food_df.empty and dataset_df.empty and order_df.empty:
-        return {
-            "most_popular_food": {"Burger": 120},
-            "most_ordered_food": {"name": "Burger", "orders": 120},
-            "food_rankings": [
-                {"name": "Burger", "count": 120},
-                {"name": "Sandwich", "count": 94},
-                {"name": "Pasta", "count": 82},
-            ],
-            "peak_order_time": "11:00-13:00",
-            "peak_order_time_details": {"slot": "11:00-13:00", "orders": 88},
-            "veg_preference": "63%",
-            "veg_vs_non_veg_ratio": {
-                "veg_count": 126,
-                "non_veg_count": 74,
-                "veg_percentage": 63.0,
-                "non_veg_percentage": 37.0,
-                "display": "63.0% veg / 37.0% non-veg",
-            },
-            "top_students": {"student_1": 23, "student_2": 18, "student_3": 14},
-            "top_students_list": [
-                {"student": "student_1", "orders": 23},
-                {"student": "student_2", "orders": 18},
-                {"student": "student_3", "orders": 14},
-            ],
-            "total_orders": 200,
-            "note": "No order history available; returning sample analytics.",
-        }
+        veg_ratio = _build_veg_ratio(order_df)
+        most_ordered_food = food_rankings[0] if food_rankings else {"name": "N/A", "orders": 0}
 
-    most_popular_food, food_rankings = _top_counts(base_food_df, "food_item", top_n)
-    top_students, top_students_list = _top_counts(order_df, "student_id", top_n)
-
-    peak_order_time = None
-    peak_order_time_details = {"slot": None, "orders": 0}
-    if _has_series(base_time_df, "time_slot"):
-        slot_counts = base_time_df["time_slot"].astype(str).value_counts()
-        peak_order_time = str(slot_counts.idxmax())
-        peak_order_time_details = {
-            "slot": peak_order_time,
-            "orders": int(slot_counts.iloc[0]),
-        }
-
-    veg_ratio = _build_veg_ratio(order_df, dataset_df)
-    most_ordered_food = food_rankings[0] if food_rankings else {"name": "N/A", "orders": 0}
-
-    return {
-        "most_popular_food": most_popular_food,
-        "most_ordered_food": {
-            "name": most_ordered_food.get("name", "N/A"),
-            "orders": int(most_ordered_food.get("count", 0)),
-        },
-        "food_rankings": food_rankings,
-        "peak_order_time": peak_order_time,
-        "peak_order_time_details": peak_order_time_details,
-        "veg_preference": f"{veg_ratio['veg_percentage']}%",
-        "veg_vs_non_veg_ratio": veg_ratio,
-        "top_students": top_students,
-        "top_students_list": [
-            {"student": item["name"], "orders": item["count"]}
-            for item in top_students_list
-        ],
-        "total_orders": int(len(order_df)) if not order_df.empty else int(len(base_food_df)),
-    }
+        payload = _empty_student_analytics()
+        payload.update(
+            {
+                "most_popular_food": most_popular_food,
+                "most_ordered_food": {
+                    "name": most_ordered_food.get("name", "N/A"),
+                    "orders": int(most_ordered_food.get("count", 0)),
+                },
+                "food_rankings": food_rankings,
+                "peak_order_time": peak_order_time,
+                "peak_order_time_details": peak_order_time_details,
+                "veg_preference": f"{veg_ratio['veg_percentage']}%",
+                "veg_vs_non_veg_ratio": veg_ratio,
+                "top_students": top_students,
+                "top_students_list": [
+                    {"student": item["name"], "orders": item["count"]}
+                    for item in top_students_list
+                ],
+                "total_orders": int(len(order_df)),
+                "data_sources": {
+                    "local_orders_used": not order_df.empty,
+                    "dataset_used": False,
+                },
+            }
+        )
+        return payload
+    except Exception as exc:
+        return _empty_student_analytics(
+            f"Student analytics is temporarily using a safe fallback because live analytics could not be fully processed: {str(exc)}"
+        )
 
 
 def prediction_accuracy_summary(top_n: int = 5):

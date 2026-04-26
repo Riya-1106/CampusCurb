@@ -46,5 +46,13 @@
     "createdBy": "ReFzEsVnc4Wczmfbl5hxBPl8rkQ2",
     "activatedAt": "2026-04-25T20:38:46.833365+00:00",
     "uid": "Kr2VtWhDbfSeSufR60pYi0KYgF52"
+  },
+  "VnFKVcbxj9ZX7dfaNVgKLtfKEZr1": {
+    "uid": "VnFKVcbxj9ZX7dfaNVgKLtfKEZr1",
+    "email": "dhruvdave0603@sfit.ac.in",
+    "name": "Canteen Operator",
+    "role": "canteen",
+    "isActive": true,
+    "seededBy": "canteen_request_fallback"
   }
 }

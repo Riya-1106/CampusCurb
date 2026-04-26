@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 import '../../services/admin_service.dart';
 
@@ -13,7 +14,9 @@ class _MenuUploadScreenState extends State<MenuUploadScreen> {
   final AdminService _adminService = AdminService();
   final TextEditingController nameController = TextEditingController();
   final TextEditingController priceController = TextEditingController();
-  final TextEditingController categoryController = TextEditingController(text: 'general');
+  final TextEditingController categoryController = TextEditingController(
+    text: 'general',
+  );
 
   Future<void> addMenuItem() async {
     if (nameController.text.isEmpty || priceController.text.isEmpty) {
@@ -27,17 +30,20 @@ class _MenuUploadScreenState extends State<MenuUploadScreen> {
       final category = categoryController.text.trim().isEmpty
           ? 'general'
           : categoryController.text.trim();
+      final currentUser = FirebaseAuth.instance.currentUser;
       await _adminService.createMenuItem(
         name: nameController.text.trim(),
         price: int.parse(priceController.text),
         category: category,
+        autoApprove: false,
+        requestedBy: currentUser?.uid ?? 'canteen',
       );
       if (!mounted) return;
       nameController.clear();
       priceController.clear();
       categoryController.text = 'general';
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Menu item added to the shared menu")),
+        const SnackBar(content: Text("Menu item sent to admin for approval")),
       );
     } catch (e) {
       if (!mounted) return;
@@ -83,7 +89,7 @@ class _MenuUploadScreenState extends State<MenuUploadScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Publish a new food item',
+                    'Submit a new food item',
                     style: TextStyle(
                       color: Colors.white,
                       fontSize: 26,
@@ -92,7 +98,7 @@ class _MenuUploadScreenState extends State<MenuUploadScreen> {
                   ),
                   SizedBox(height: 10),
                   Text(
-                    'The item is written to the shared menu immediately, so students can see it after refresh.',
+                    'Submit a menu item for admin approval before it goes live to students.',
                     style: TextStyle(
                       color: Colors.white70,
                       fontSize: 15,
